@@ -1019,17 +1019,26 @@ function NetsLab() {
     if (!autoRotate) return;
     let raf;
     let angle = viewY;
-    const tick = () => {
-      angle += 0.6;
-      if (sceneRef.current) {
-        sceneRef.current.style.transform = `rotateX(${viewX}deg) rotateY(${angle}deg)`;
+    let lastTime = performance.now();
+    const tick = (now) => {
+      const elapsed = now - lastTime;
+      if (elapsed >= 32) {
+        // The fold tree is nested 3D (each hinge nests inside its parent),
+        // which is expensive to recomposite — updating at ~30fps instead of
+        // ~60fps roughly halves that sustained cost. Scale the increment by
+        // actual elapsed time so the rotation speed stays the same either way.
+        angle += 0.6 * (elapsed / 32);
+        if (sceneRef.current) {
+          sceneRef.current.style.transform = `rotateX(${viewX}deg) rotateY(${angle}deg)`;
+        }
+        lastTime = now;
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
-      setViewY(angle); // hand the final angle back to React state once spinning stops
+      setViewY(angle);
     };
   }, [autoRotate]);
 
