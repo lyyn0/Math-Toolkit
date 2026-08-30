@@ -2089,6 +2089,8 @@ const Cube3D = React.memo(function Cube3D({ s, x, y, z, paint, count, selected, 
             border: `1.5px solid ${selected ? "#D9862A" : "#1C2531"}`,
             boxShadow: selected ? "0 0 0 3px rgba(217,134,42,0.65) inset" : "none",
             transform: f.transform,
+            backfaceVisibility: "hidden",
+            WebkitBackfaceVisibility: "hidden",
           }}
         />
       ))}
@@ -2240,7 +2242,9 @@ function CubeLab() {
                     transition: dragRef.current ? "none" : "transform 0.15s linear",
                   }}
                 >
-                  {cubes.map((c) => {
+                  {cubes
+                    .filter((c) => exploded || c.count > 0)
+                    .map((c) => {
                     const isSel = selected && selected.x === c.x && selected.y === c.y && selected.z === c.z;
                     return (
                       <Cube3D
