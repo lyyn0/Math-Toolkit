@@ -1010,14 +1010,27 @@ function NetsLab() {
   const [viewX, setViewX] = useState(-24);
   const [viewY, setViewY] = useState(-32);
   const dragRef = useRef(null);
+  const sceneRef = useRef(null);
 
   const evalResult = evaluateNet(cells);
   const faceSize = 60;
 
   useEffect(() => {
     if (!autoRotate) return;
-    const iv = setInterval(() => setViewY((v) => v + 0.6), 30);
-    return () => clearInterval(iv);
+    let raf;
+    let angle = viewY;
+    const tick = () => {
+      angle += 0.6;
+      if (sceneRef.current) {
+        sceneRef.current.style.transform = `rotateX(${viewX}deg) rotateY(${angle}deg)`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      setViewY(angle); // hand the final angle back to React state once spinning stops
+    };
   }, [autoRotate]);
 
   function clampNum(v, min, max) {
@@ -1157,10 +1170,11 @@ function NetsLab() {
                   style={{ perspective: 900, height: 300, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", touchAction: "none" }}
                 >
                   <div
+                    ref={sceneRef}
                     style={{
                       position: "relative", width: faceSize, height: faceSize, transformStyle: "preserve-3d",
                       transform: `rotateX(${viewX}deg) rotateY(${viewY}deg)`,
-                      transition: dragRef.current ? "none" : "transform 0.15s linear",
+                      transition: dragRef.current || autoRotate ? "none" : "transform 0.15s linear",
                     }}
                   >
                     <FaceNode node={evalResult.root ?? buildTree(cells).root} cells={cells} faceSize={faceSize} folded={folded} flip={flip} animate={true} />
