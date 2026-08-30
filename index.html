@@ -1,0 +1,2377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Primary Math Toolkit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  html, body { margin:0; padding:0; background:#F3F0E7; overscroll-behavior:none; }
+  * { -webkit-tap-highlight-color: transparent; }
+  input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ---------------------------------------------------------------------
+// Lightweight emoji stand-ins for lucide-react icons (kept dependency-free
+// so this single file works offline-ish and needs no npm/build step).
+// ---------------------------------------------------------------------
+const ICON_GLYPHS = {
+  Droplet: "💧", Link2: "🔗", Unlink: "🔓", RotateCcw: "↺", Beaker: "🧪",
+  Ruler: "📏", Waves: "🌊", Box: "📦", Shuffle: "🔀", CheckCircle2: "✅",
+  XCircle: "❌", Repeat: "🔁", Eraser: "🧹", Wallet: "💰", Sparkles: "✨",
+  Minus: "−", Plus: "+", Eye: "👁", EyeOff: "🙈", PieChart: "🥧",
+  Rows3: "☰", SlidersHorizontal: "🎚", Clock3: "🕐", Hammer: "🔨",
+};
+function makeIcon(glyph) {
+  return function Icon({ size = 16, style, color, ...rest }) {
+    return React.createElement(
+      "span",
+      { style: { fontSize: size, lineHeight: 1, display: "inline-block", ...style }, ...rest },
+      glyph
+    );
+  };
+}
+const iconComponents = Object.fromEntries(Object.entries(ICON_GLYPHS).map(([k, v]) => [k, makeIcon(v)]));
+const { Droplet, Link2, Unlink, RotateCcw, Beaker, Ruler, Waves, Box, Shuffle, CheckCircle2, XCircle, Repeat, Eraser, Wallet, Sparkles, Minus, Plus, Eye, EyeOff, PieChart, Rows3, SlidersHorizontal, Clock3, Hammer } = iconComponents;
+
+</script>
+<script type="text/babel" data-presets="react">
+const VolumeLab = (function() {
+
+const COLORS = {
+  paper: "#F3F0E7",
+  card: "#FFFFFF",
+  border: "#E2DED0",
+  ink: "#1C2531",
+  inkSoft: "#6E7885",
+  water: "#3E8EDE",
+  waterLight: "#A9DBF7",
+  waterDeep: "#265C99",
+  glassTop: "#F2F7FB",
+  glassBottom: "#DCE8F4",
+  glassLine: "#1C2531",
+  amber: "#D9862A",
+  amberBg: "#FBEAD3",
+  warn: "#C24B2C",
+  green: "#3E8F62",
+  hole: "#7C5CBF",
+  holeBg: "#EFE9F8",
+  grid: "#DEE6EC",
+};
+
+const CARD_SHADOW = "0 1px 2px rgba(28,37,49,0.04), 0 10px 28px -14px rgba(28,37,49,0.22)";
+const FONT_HEAD = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
+
+function clamp(v, min, max) {
+  return Math.min(max, Math.max(min, v));
+}
+
+function niceStep(max) {
+  const steps = [1, 2, 5,10,20,25,50, 100];
+  for (const s of steps) {
+    if (max / s <= 8) return s;
+  }
+  return 100;
+}
+
+function fmt(n, d = 1) {
+  const r = Math.round(n * 10 ** d) / 10 ** d;
+  return r.toString();
+}
+
+// ---------- Tank drawing ----------
+function TankSVG({ x0, baseline, scale, L, B, H, waterHeight, name, id = "t", hole }) {
+  const frontW = L * scale;
+  const frontH = H * scale;
+  const y0 = baseline - frontH;
+  const depthPx = clamp(B * scale, 16, 66);
+  const dx = depthPx * 0.55;
+  const dy = -depthPx * 0.38;
+
+  const overflow = waterHeight > H + 0.001;
+  const wH = clamp(waterHeight, 0, H);
+  const wPx = wH * scale;
+  const wy = y0 + frontH - wPx;
+
+  const FTL = [x0, y0], FTR = [x0 + frontW, y0], FBR = [x0 + frontW, y0 + frontH];
+  const BTL = [x0 + dx, y0 + dy], BTR = [x0 + frontW + dx, y0 + dy], BBR = [x0 + frontW + dx, y0 + dy + frontH];
+
+  const pts = (arr) => arr.map((p) => p.join(",")).join(" ");
+  const rimPts = pts([FTL, FTR, BTR, BTL]);
+  const rightFacePts = pts([FTR, BTR, BBR, FBR]);
+  const waterRightPts = pts([[x0 + frontW, wy], [x0 + frontW + dx, wy + dy], BBR, FBR]);
+  const waterTopPts = wH < H - 0.001 ? pts([[x0, wy], [x0 + frontW, wy], [x0 + frontW + dx, wy + dy], [x0 + dx, wy + dy]]) : null;
+
+  const step = niceStep(H);
+  const ticks = [];
+  for (let v = 0; v <= H + 0.0001; v += step) ticks.push(Math.round(v * 10) / 10);
+  if (ticks[ticks.length - 1] < H) ticks.push(Math.round(H * 10) / 10);
+
+  const gWater = `grad-water-${id}`;
+  const gGlassF = `grad-glassF-${id}`;
+  const gGlassR = `grad-glassR-${id}`;
+
+  return (
+    <g>
+      <defs>
+        <linearGradient id={gWater} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={COLORS.waterLight} />
+          <stop offset="100%" stopColor={COLORS.water} />
+        </linearGradient>
+        <linearGradient id={gGlassF} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={COLORS.glassTop} />
+          <stop offset="100%" stopColor={COLORS.glassBottom} />
+        </linearGradient>
+        <linearGradient id={gGlassR} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor={COLORS.glassBottom} />
+          <stop offset="100%" stopColor="#C7D9E9" />
+        </linearGradient>
+      </defs>
+
+      {/* grounding shadow */}
+      <ellipse cx={x0 + frontW / 2 + dx / 2} cy={baseline + 5} rx={frontW / 2 + depthPx * 0.4} ry="6" fill={COLORS.ink} opacity="0.1" />
+
+      <polygon points={rightFacePts} fill={`url(#${gGlassR})`} stroke={COLORS.glassLine} strokeWidth="1.5" />
+      <rect x={x0} y={y0} width={frontW} height={frontH} fill={`url(#${gGlassF})`} stroke={COLORS.glassLine} strokeWidth="1.5" />
+      <polygon points={rimPts} fill={COLORS.glassTop} stroke={COLORS.glassLine} strokeWidth="1.5" />
+
+      <polygon points={waterRightPts} fill={COLORS.waterDeep} style={{ transition: "all 0.5s ease" }} />
+      <rect x={x0} y={wy} width={frontW} height={wPx} fill={`url(#${gWater})`} style={{ transition: "all 0.5s ease" }} />
+      {waterTopPts && <polygon points={waterTopPts} fill={COLORS.waterLight} style={{ transition: "all 0.5s ease" }} />}
+
+      {/* glass highlight streak */}
+      <line x1={x0 + frontW * 0.18} y1={y0 + 4} x2={x0 + frontW * 0.18} y2={y0 + frontH - 4} stroke="#FFFFFF" strokeWidth="5" opacity="0.35" strokeLinecap="round" />
+
+      <rect x={x0} y={y0} width={frontW} height={frontH} fill="none" stroke={COLORS.glassLine} strokeWidth="1.5" />
+      <polygon points={rimPts} fill="none" stroke={COLORS.glassLine} strokeWidth="1.5" />
+      <line x1={FTR[0]} y1={FTR[1]} x2={BTR[0]} y2={BTR[1]} stroke={COLORS.glassLine} strokeWidth="1.5" />
+      <line x1={FBR[0]} y1={FBR[1]} x2={BBR[0]} y2={BBR[1]} stroke={COLORS.glassLine} strokeWidth="1.5" />
+      <line x1={BTR[0]} y1={BTR[1]} x2={BBR[0]} y2={BBR[1]} stroke={COLORS.glassLine} strokeWidth="1.5" />
+
+      {ticks.map((t, i) => {
+        const ty = y0 + frontH - t * scale;
+        const active = Math.abs(t - wH) < step * 0.06;
+        return (
+          <g key={i}>
+            <line x1={x0} y1={ty} x2={x0 + frontW} y2={ty} stroke={COLORS.ink} strokeWidth="1" opacity="0.06" />
+            <line x1={x0 - 6} y1={ty} x2={x0} y2={ty} stroke={active ? COLORS.amber : COLORS.inkSoft} strokeWidth={active ? 2 : 1} />
+            <text x={x0 - 10} y={ty + 3} fontSize="9" textAnchor="end" fill={active ? COLORS.amber : COLORS.inkSoft} fontFamily="ui-monospace,monospace">
+              {t}
+            </text>
+          </g>
+        );
+      })}
+
+      <line x1={x0 - 2} y1={wy} x2={x0 + frontW + 2} y2={wy} stroke={COLORS.amber} strokeWidth="1.5" strokeDasharray="3,3" style={{ transition: "all 0.5s ease" }} />
+      <g style={{ transition: "all 0.5s ease" }} transform={`translate(${x0 + frontW + dx + 10}, ${wy - 9})`}>
+        <rect x="0" y="0" width={38} height="17" rx="4" fill={COLORS.amberBg} />
+        <text x="19" y="12.5" fontSize="10.5" fontWeight="700" fill={COLORS.amber} textAnchor="middle" fontFamily={FONT_HEAD}>
+          {fmt(wH)}
+        </text>
+      </g>
+
+      <text x={x0 + frontW / 2} y={baseline + 19} fontSize="10" fill={COLORS.inkSoft} textAnchor="middle">L = {L} cm</text>
+      <text x={x0 + frontW + dx / 2 + 4} y={y0 + dy / 2 - 4} fontSize="10" fill={COLORS.inkSoft} textAnchor="middle">B = {B} cm</text>
+
+      {hole && (() => {
+        const sillY = y0 + frontH - hole.sill * scale;
+        const holeR = clamp((hole.diameter / 2) * scale, 4, frontH * 0.4);
+        const holeCx = x0 + frontW - holeR - 6;
+        const holeCy = sillY - holeR;
+        return (
+          <g>
+            <line x1={x0 - 2} y1={sillY} x2={x0 + frontW + 2} y2={sillY} stroke={COLORS.hole} strokeWidth="1.5" strokeDasharray="4,2" />
+            <g transform={`translate(${x0 + 4}, ${sillY - 8})`}>
+              <rect x="0" y="-11" width={hole.sill.toString().length * 6.5 + 40} height="15" rx="3" fill={COLORS.holeBg} />
+              <text x="5" y="0.5" fontSize="9.5" fontWeight="700" fill={COLORS.hole}>stops at {fmt(hole.sill)} cm</text>
+            </g>
+            <circle cx={holeCx} cy={holeCy} r={holeR} fill="rgba(28,37,49,0.28)" stroke={COLORS.glassLine} strokeWidth="1.2" />
+          </g>
+        );
+      })()}
+
+      {name && (
+        <g transform={`translate(${x0}, ${y0 - (overflow ? 34 : 20)})`}>
+          <rect x="-3" y="-13" width={name.length * 6.6 + 14} height="18" rx="3" fill={COLORS.card} stroke={COLORS.border} />
+          <rect x="-3" y="-13" width="3" height="18" fill={COLORS.amber} />
+          <text x="7" y="0.5" fontSize="11.5" fontWeight="700" fill={COLORS.ink} fontFamily={FONT_HEAD}>{name}</text>
+        </g>
+      )}
+      {overflow && (
+        <text x={x0} y={y0 - 16} fontSize="10.5" fontWeight="700" fill={COLORS.warn}>
+          ⚠ overflows — tank is only {H} cm tall
+        </text>
+      )}
+    </g>
+  );
+}
+
+// ---------- Controls ----------
+function Field({ label, value, min, max, step = 1, unit = "", onChange }) {
+  return (
+    <div className="mb-3.5">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: COLORS.inkSoft }}>{label}</span>
+        <input
+          type="number"
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          onChange={(e) => onChange(clamp(parseFloat(e.target.value) || 0, min, max))}
+          className="w-16 text-xs text-right rounded-md border px-1.5 py-1 outline-none"
+          style={{ borderColor: COLORS.border, color: COLORS.ink, fontFamily: FONT_HEAD, fontWeight: 700 }}
+        />
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="vl-slider w-full"
+      />
+    </div>
+  );
+}
+
+function Card({ children, style, accent }) {
+  return (
+    <div
+      className="rounded-2xl p-4"
+      style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW, borderTop: accent ? `3px solid ${accent}` : undefined, ...style }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Eyebrow({ children, icon }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-3">
+      {icon}
+      <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: COLORS.inkSoft }}>{children}</span>
+    </div>
+  );
+}
+
+const DEFAULT_SINGLE = { L: 20, B: 10, H: 15, waterHeight: 6 };
+const DEFAULT_TANKS = [
+  { name: "Tank A", L: 20, B: 10, H: 18, waterHeight: 10 },
+  { name: "Tank B", L: 14, B: 10, H: 24, waterHeight: 4 },
+];
+const DEFAULT_CHAIN = [
+  { name: "Tank A", L: 20, B: 10, H: 20, waterHeight: 16, sill: 4, diameter: 4 },
+  { name: "Tank B", L: 15, B: 10, H: 18, waterHeight: 0, sill: 3, diameter: 4 },
+  { name: "Tank C", L: 14, B: 14, H: 14, waterHeight: 0, sill: 0, diameter: 0 },
+];
+
+// Returns a snapshot of every tank's level after each drain event, so the
+// visual can play through them one at a time instead of jumping to the end.
+function simulateChainSteps(active) {
+  const areas = active.map((t) => t.L * t.B);
+  let levels = active.map((t) => t.waterHeight);
+  const snapshots = [levels.slice()];
+  const drainedVols = [];
+  for (let i = 0; i < active.length - 1; i++) {
+    const sill = active[i].sill || 0;
+    const releaseH = Math.max(0, levels[i] - sill);
+    const vol = areas[i] * releaseH;
+    drainedVols.push(vol);
+    levels = levels.slice();
+    levels[i] = Math.min(levels[i], sill);
+    levels[i + 1] = levels[i + 1] + vol / areas[i + 1];
+    snapshots.push(levels.slice());
+  }
+  return { snapshots, drainedVols, areas };
+}
+
+function VolumeLab() {
+  const [mode, setMode] = useState("single");
+  const [single, setSingle] = useState(DEFAULT_SINGLE);
+  const [tanks, setTanks] = useState(DEFAULT_TANKS);
+  const [connected, setConnected] = useState(false);
+  const [chain, setChain] = useState(DEFAULT_CHAIN);
+  const [numTanks, setNumTanks] = useState(3);
+  const [stage, setStage] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const playToken = useRef(0);
+
+  const updateSingle = (key) => (val) => setSingle((s) => ({ ...s, [key]: key === "H" ? val : val, ...(key === "H" ? { waterHeight: Math.min(s.waterHeight, val) } : {}) }));
+  const updateTank = (idx, key) => (val) =>
+    setTanks((ts) => ts.map((t, i) => (i === idx ? { ...t, [key]: val, ...(key === "H" ? { waterHeight: Math.min(t.waterHeight, val) } : {}) } : t)));
+  const updateChain = (idx, key) => (val) =>
+    setChain((cs) =>
+      cs.map((t, i) => {
+        if (i !== idx) return t;
+        const next = { ...t, [key]: val };
+        if (key === "H") next.waterHeight = Math.min(next.waterHeight, val);
+        if (key === "H" && next.sill > val) next.sill = val;
+        return next;
+      })
+    );
+
+  // ---- single tank derived values ----
+  const baseArea = single.L * single.B;
+  const volume = baseArea * single.waterHeight;
+  const capacity = baseArea * single.H;
+
+  // ---- combine derived values ----
+  const areas = tanks.map((t) => t.L * t.B);
+  const vols = tanks.map((t, i) => areas[i] * t.waterHeight);
+  const totalVol = vols[0] + vols[1];
+  const totalArea = areas[0] + areas[1];
+  const commonHeight = totalArea > 0 ? totalVol / totalArea : 0;
+  const overflowTank = connected && tanks.some((t, i) => commonHeight > t.H + 0.001) ? tanks.find((t, i) => commonHeight > t.H + 0.001) : null;
+
+  // ---- drain-through-hole derived values ----
+  const activeChain = chain.slice(0, numTanks);
+  const simSteps = simulateChainSteps(activeChain);
+  const totalDrainSteps = simSteps.snapshots.length - 1;
+  const displayLevels = simSteps.snapshots[Math.min(stage, totalDrainSteps)];
+  const finalLevels = simSteps.snapshots[totalDrainSteps];
+  const chainOverflows = activeChain.map((t, i) => finalLevels[i] > t.H + 0.001);
+
+  useEffect(() => {
+    playToken.current++;
+    setStage(0);
+    setPlaying(false);
+  }, [chain, numTanks]);
+
+  const playSequence = () => {
+    const token = ++playToken.current;
+    setPlaying(true);
+    let i = 0;
+    const stepDelay = 1100;
+    const tick = () => {
+      if (playToken.current !== token) return;
+      i++;
+      setStage(i);
+      if (i < totalDrainSteps) {
+        setTimeout(tick, stepDelay);
+      } else {
+        setPlaying(false);
+      }
+    };
+    setTimeout(tick, stepDelay);
+  };
+
+  const resetSequence = () => {
+    playToken.current++;
+    setStage(0);
+    setPlaying(false);
+  };
+
+  // ---- scale + layout ----
+  const scaleFor = (items, maxH = 180, maxW = 200) => {
+    let s = 12;
+    items.forEach(({ L, H }) => {
+      s = Math.min(s, maxH / H, maxW / L);
+    });
+    return clamp(s, 2.2, 12);
+  };
+
+  const baseline = 232;
+
+  return (
+    <div className="w-full min-h-screen" style={{ background: COLORS.paper, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');
+        .vl-slider { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px;
+          background: linear-gradient(90deg, ${COLORS.amber} 0%, ${COLORS.amberBg} 0%); outline: none; }
+        .vl-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: ${COLORS.border}; }
+        .vl-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 999px;
+          background: ${COLORS.amber}; border: 2.5px solid #fff; box-shadow: 0 1px 3px rgba(28,37,49,0.35); margin-top: -5px; cursor: pointer; }
+        .vl-slider::-moz-range-track { height: 6px; border-radius: 999px; background: ${COLORS.border}; }
+        .vl-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 999px; background: ${COLORS.amber}; border: 2.5px solid #fff;
+          box-shadow: 0 1px 3px rgba(28,37,49,0.35); cursor: pointer; }
+      `}</style>
+      <div
+        className="max-w-5xl mx-auto px-6 py-8"
+        style={{ backgroundImage: `linear-gradient(${COLORS.grid} 1px, transparent 1px), linear-gradient(90deg, ${COLORS.grid} 1px, transparent 1px)`, backgroundSize: "26px 26px" }}
+      >
+        {/* header */}
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="flex items-center justify-center rounded-lg" style={{ width: 34, height: 34, background: COLORS.ink }}>
+            <Beaker size={18} color={COLORS.amberBg} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: COLORS.amber }}>Measurement · Volume</div>
+            <h1 className="text-2xl leading-tight font-bold" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>Volume Lab</h1>
+          </div>
+        </div>
+        <p className="text-sm mb-6 ml-[44px]" style={{ color: COLORS.inkSoft }}>
+          Visualise water height in a tank, or connect two tanks to find the common level.
+        </p>
+
+        {/* mode tabs */}
+        <div className="inline-flex p-1 rounded-full mb-6" style={{ background: "#EAE6D9" }}>
+          {[
+            { id: "single", label: "Single Tank" },
+            { id: "combine", label: "Connect Two Tanks" },
+            { id: "drain", label: "Drain Through a Hole" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setMode(tab.id)}
+              className="px-4 py-1.5 text-sm font-semibold rounded-full transition-all"
+              style={{
+                background: mode === tab.id ? COLORS.ink : "transparent",
+                color: mode === tab.id ? "#fff" : COLORS.inkSoft,
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {mode === "single" ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
+            <Card accent={COLORS.amber}>
+              <div className="flex items-center justify-between mb-1">
+                <Eyebrow icon={<Ruler size={13} color={COLORS.amber} />}>Dimensions</Eyebrow>
+                <button onClick={() => setSingle(DEFAULT_SINGLE)} className="opacity-50 hover:opacity-100 -mt-3">
+                  <RotateCcw size={13} color={COLORS.inkSoft} />
+                </button>
+              </div>
+              <Field label="Length (L)" value={single.L} min={1} max={40} unit=" cm" onChange={updateSingle("L")} />
+              <Field label="Breadth (B)" value={single.B} min={1} max={40} unit=" cm" onChange={updateSingle("B")} />
+              <Field label="Height (H)" value={single.H} min={1} max={40} unit=" cm" onChange={updateSingle("H")} />
+              <div className="my-4 border-t" style={{ borderColor: COLORS.border }} />
+              <Eyebrow icon={<Waves size={13} color={COLORS.water} />}>Water level</Eyebrow>
+              <Field
+                label="Water height"
+                value={single.waterHeight}
+                min={0}
+                max={single.H}
+                step={0.5}
+                unit=" cm"
+                onChange={(v) => setSingle((s) => ({ ...s, waterHeight: v }))}
+              />
+            </Card>
+
+            <div className="flex flex-col gap-4">
+              <Card style={{ padding: "10px" }}>
+                <svg viewBox="0 0 480 280" className="w-full" style={{ maxHeight: 320 }}>
+                  <defs>
+                    <pattern id="paperGrid" width="24" height="24" patternUnits="userSpaceOnUse">
+                      <path d="M 24 0 L 0 0 0 24" fill="none" stroke={COLORS.grid} strokeWidth="1" />
+                    </pattern>
+                  </defs>
+                  <rect x="0" y="0" width="480" height="280" fill="url(#paperGrid)" />
+                  <line x1="20" y1={baseline + 2} x2="460" y2={baseline + 2} stroke={COLORS.border} strokeWidth="2" />
+                  <TankSVG
+                    x0={100}
+                    baseline={baseline}
+                    scale={scaleFor([single])}
+                    L={single.L}
+                    B={single.B}
+                    H={single.H}
+                    waterHeight={single.waterHeight}
+                    id="single"
+                  />
+                </svg>
+              </Card>
+
+              <Card>
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: COLORS.inkSoft }}>Base area</div>
+                    <div className="text-xl font-bold tabular-nums" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>{fmt(baseArea)}<span className="text-xs font-medium ml-0.5">cm²</span></div>
+                  </div>
+                  <div className="rounded-xl py-1" style={{ background: COLORS.amberBg }}>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: COLORS.amber }}>Water volume</div>
+                    <div className="text-xl font-bold tabular-nums" style={{ color: COLORS.waterDeep, fontFamily: FONT_HEAD }}>{fmt(volume)}<span className="text-xs font-medium ml-0.5">cm³</span></div>
+                    <div className="text-[10px]" style={{ color: COLORS.inkSoft }}>{fmt(volume / 1000, 2)} litres</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: COLORS.inkSoft }}>Capacity</div>
+                    <div className="text-xl font-bold tabular-nums" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>{fmt(capacity)}<span className="text-xs font-medium ml-0.5">cm³</span></div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </div>
+        ) : mode === "combine" ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
+            <div className="flex flex-col gap-4">
+              {tanks.map((t, i) => (
+                <Card key={i} accent={i === 0 ? COLORS.amber : COLORS.waterDeep}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="rounded-full" style={{ width: 8, height: 8, background: i === 0 ? COLORS.amber : COLORS.waterDeep }} />
+                    <span className="text-sm font-bold" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>{t.name}</span>
+                  </div>
+                  <Field label="Length (L)" value={t.L} min={1} max={30} unit=" cm" onChange={updateTank(i, "L")} />
+                  <Field label="Breadth (B)" value={t.B} min={1} max={30} unit=" cm" onChange={updateTank(i, "B")} />
+                  <Field label="Height (H)" value={t.H} min={1} max={35} unit=" cm" onChange={updateTank(i, "H")} />
+                  <div className="my-3 border-t" style={{ borderColor: COLORS.border }} />
+                  <Field
+                    label="Water height"
+                    value={t.waterHeight}
+                    min={0}
+                    max={t.H}
+                    step={0.5}
+                    unit=" cm"
+                    onChange={(v) => setTanks((ts) => ts.map((tt, ii) => (ii === i ? { ...tt, waterHeight: v } : tt)))}
+                  />
+                </Card>
+              ))}
+              <button
+                onClick={() => setConnected((c) => !c)}
+                className="flex items-center justify-center gap-2 rounded-full py-2.5 text-sm font-semibold transition-colors"
+                style={{
+                  background: connected ? COLORS.amberBg : COLORS.ink,
+                  color: connected ? COLORS.amber : "#fff",
+                  boxShadow: CARD_SHADOW,
+                }}
+              >
+                {connected ? <Unlink size={15} /> : <Link2 size={15} />}
+                {connected ? "Disconnect tanks" : "Connect tanks"}
+              </button>
+              <button
+                onClick={() => {
+                  setTanks(DEFAULT_TANKS);
+                  setConnected(false);
+                }}
+                className="flex items-center justify-center gap-2 rounded-full py-2 text-xs font-medium opacity-70 hover:opacity-100"
+                style={{ color: COLORS.inkSoft }}
+              >
+                <RotateCcw size={12} /> Reset
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <Card style={{ padding: "10px" }}>
+                <svg viewBox="0 0 560 280" className="w-full" style={{ maxHeight: 320 }}>
+                  <defs>
+                    <pattern id="paperGrid2" width="24" height="24" patternUnits="userSpaceOnUse">
+                      <path d="M 24 0 L 0 0 0 24" fill="none" stroke={COLORS.grid} strokeWidth="1" />
+                    </pattern>
+                  </defs>
+                  <rect x="0" y="0" width="560" height="280" fill="url(#paperGrid2)" />
+                  <line x1="20" y1={baseline + 2} x2="540" y2={baseline + 2} stroke={COLORS.border} strokeWidth="2" />
+                  {(() => {
+                    const s = scaleFor(tanks, 175, 150);
+                    const fw0 = tanks[0].L * s;
+                    const x0 = 110;
+                    const x1 = x0 + fw0; // tanks touch — shared wall at the seam
+                    const h0 = connected ? commonHeight : tanks[0].waterHeight;
+                    const h1 = connected ? commonHeight : tanks[1].waterHeight;
+                    const maxH = Math.max(tanks[0].H, tanks[1].H);
+                    const wallTop = baseline - maxH * s - 6;
+                    const gap = 14; // opening height at the base when connected
+
+                    return (
+                      <>
+                        <TankSVG x0={x0} baseline={baseline} scale={s} L={tanks[0].L} B={tanks[0].B} H={tanks[0].H} waterHeight={h0} name={tanks[0].name} id="a" />
+                        <TankSVG x0={x1} baseline={baseline} scale={s} L={tanks[1].L} B={tanks[1].B} H={tanks[1].H} waterHeight={h1} name={tanks[1].name} id="b" />
+
+                        {/* shared wall between the two tanks */}
+                        {connected ? (
+                          <>
+                            <line x1={x1} y1={wallTop} x2={x1} y2={baseline - gap} stroke={COLORS.glassLine} strokeWidth="3" />
+                            <line x1={x1 - 5} y1={baseline - gap / 2} x2={x1 + 5} y2={baseline - gap / 2} stroke={COLORS.amber} strokeWidth="2" strokeDasharray="2,2" />
+                          </>
+                        ) : (
+                          <line x1={x1} y1={wallTop} x2={x1} y2={baseline} stroke={COLORS.glassLine} strokeWidth="3" />
+                        )}
+                      </>
+                    );
+                  })()}
+                </svg>
+              </Card>
+
+              <Card>
+                {!connected ? (
+                  <div className="grid grid-cols-2 gap-4 text-center">
+                    {tanks.map((t, i) => (
+                      <div key={i} className="rounded-xl py-2" style={{ background: i === 0 ? COLORS.amberBg : "#E7EEF6" }}>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: i === 0 ? COLORS.amber : COLORS.waterDeep }}>{t.name} volume</div>
+                        <div className="text-xl font-bold tabular-nums" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>{fmt(areas[i] * t.waterHeight)}<span className="text-xs font-medium ml-0.5">cm³</span></div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-center mb-2.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: COLORS.green }}>Common water level</div>
+                      <div className="text-3xl font-bold tabular-nums" style={{ color: COLORS.green, fontFamily: FONT_HEAD }}>{fmt(commonHeight, 2)} <span className="text-base font-semibold">cm</span></div>
+                    </div>
+                    <div className="text-xs text-center font-mono rounded-lg py-2" style={{ color: COLORS.inkSoft, background: COLORS.paper }}>
+                      ({fmt(vols[0])} + {fmt(vols[1])}) ÷ ({fmt(areas[0])} + {fmt(areas[1])}) = {fmt(totalVol)} ÷ {fmt(totalArea)} = {fmt(commonHeight, 2)} cm
+                    </div>
+                    {overflowTank && (
+                      <div className="mt-2 text-xs text-center font-medium flex items-center justify-center gap-1" style={{ color: COLORS.warn }}>
+                        <Droplet size={12} /> This level exceeds {overflowTank.name}'s height ({overflowTank.H} cm) — it would overflow.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
+            <div className="flex flex-col gap-4">
+              <div className="inline-flex p-1 rounded-full self-start" style={{ background: "#EAE6D9" }}>
+                {[2, 3].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setNumTanks(n)}
+                    className="px-3.5 py-1 text-xs font-semibold rounded-full transition-all"
+                    style={{ background: numTanks === n ? COLORS.ink : "transparent", color: numTanks === n ? "#fff" : COLORS.inkSoft }}
+                  >
+                    {n} tanks
+                  </button>
+                ))}
+              </div>
+
+              {activeChain.map((t, i) => {
+                const isLast = i === activeChain.length - 1;
+                const dotColor = [COLORS.amber, COLORS.waterDeep, COLORS.green][i % 3];
+                return (
+                  <Card key={i} accent={dotColor}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="rounded-full" style={{ width: 8, height: 8, background: dotColor }} />
+                      <span className="text-sm font-bold" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>{t.name}</span>
+                    </div>
+                    <Field label="Length (L)" value={t.L} min={1} max={30} unit=" cm" onChange={updateChain(i, "L")} />
+                    <Field label="Breadth (B)" value={t.B} min={1} max={30} unit=" cm" onChange={updateChain(i, "B")} />
+                    <Field label="Height (H)" value={t.H} min={1} max={30} unit=" cm" onChange={updateChain(i, "H")} />
+                    <div className="my-3 border-t" style={{ borderColor: COLORS.border }} />
+                    <Field label="Starting water height" value={t.waterHeight} min={0} max={t.H} step={0.5} unit=" cm" onChange={updateChain(i, "waterHeight")} />
+                    {!isLast && (
+                      <>
+                        <div className="my-3 border-t" style={{ borderColor: COLORS.border }} />
+                        <Eyebrow icon={<Droplet size={13} color={COLORS.hole} />}>Outlet hole</Eyebrow>
+                        <Field label="Bottom of hole (sill)" value={t.sill} min={0} max={t.H} step={0.5} unit=" cm" onChange={updateChain(i, "sill")} />
+                        <Field label="Hole diameter" value={t.diameter} min={0} max={Math.max(1, t.H - t.sill)} step={0.5} unit=" cm" onChange={updateChain(i, "diameter")} />
+                      </>
+                    )}
+                  </Card>
+                );
+              })}
+
+              <button
+                onClick={() => (stage > 0 ? resetSequence() : playSequence())}
+                disabled={playing}
+                className="flex items-center justify-center gap-2 rounded-full py-2.5 text-sm font-semibold transition-colors disabled:opacity-70"
+                style={{ background: stage > 0 ? COLORS.holeBg : COLORS.ink, color: stage > 0 ? COLORS.hole : "#fff", boxShadow: CARD_SHADOW }}
+              >
+                <Droplet size={15} />
+                {playing ? "Draining…" : stage > 0 ? "Reset to starting levels" : "Let it drain"}
+              </button>
+              {playing && (
+                <div className="text-[11px] text-center font-medium" style={{ color: COLORS.hole }}>
+                  Step {stage} of {totalDrainSteps} — {activeChain[stage - 1]?.name} settling at its hole…
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <Card style={{ padding: "10px" }}>
+                <svg viewBox="0 0 640 320" className="w-full" style={{ maxHeight: 360 }}>
+                  <defs>
+                    <pattern id="paperGrid3" width="24" height="24" patternUnits="userSpaceOnUse">
+                      <path d="M 24 0 L 0 0 0 24" fill="none" stroke={COLORS.grid} strokeWidth="1" />
+                    </pattern>
+                    <marker id="arrowHead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                      <path d="M0,0 L6,3 L0,6 Z" fill={COLORS.hole} />
+                    </marker>
+                  </defs>
+                  <rect x="0" y="0" width="640" height="320" fill="url(#paperGrid3)" />
+                  {(() => {
+                    const s = clamp(
+                      activeChain.reduce((acc, t) => Math.min(acc, 145 / t.H, 105 / t.L), 12),
+                      2,
+                      12
+                    );
+                    const baseTop = 150;
+                    const tierDrop = 34; // each following tank sits on a lower tier, like the picture
+                    let cursorX = 40;
+                    const geoms = activeChain.map((t, i) => {
+                      const frontW = t.L * s;
+                      const depthPx = clamp(t.B * s, 16, 60);
+                      const tankBaseline = baseTop + i * tierDrop;
+                      const x0 = cursorX;
+                      cursorX = x0 + frontW * 0.66 + depthPx * 0.35 + 42; // tight overlap so tanks nest together
+                      return { x0, frontW, depthPx, y0: tankBaseline - t.H * s, baseline: tankBaseline };
+                    });
+                    return (
+                      <>
+                        {geoms.map((g, i) => (
+                          <line key={`floor${i}`} x1={g.x0 - 14} y1={g.baseline + 2} x2={g.x0 + g.frontW + g.depthPx + 14} y2={g.baseline + 2} stroke={COLORS.border} strokeWidth="1.5" opacity="0.6" />
+                        ))}
+                        {activeChain.map((t, i) => (
+                          <TankSVG
+                            key={i}
+                            x0={geoms[i].x0}
+                            baseline={geoms[i].baseline}
+                            scale={s}
+                            L={t.L}
+                            B={t.B}
+                            H={t.H}
+                            waterHeight={displayLevels[i]}
+                            name={t.name}
+                            id={`chain${i}`}
+                            hole={i < activeChain.length - 1 ? { sill: t.sill, diameter: t.diameter } : undefined}
+                          />
+                        ))}
+                        {activeChain.slice(0, -1).map((t, i) => {
+                          const g = geoms[i];
+                          const gN = geoms[i + 1];
+                          const holeR = clamp((t.diameter / 2) * s, 4, t.H * s * 0.4);
+                          const sillY = g.baseline - t.sill * s;
+                          const startX = g.x0 + g.frontW - holeR - 6;
+                          const startY = sillY - holeR;
+                          const endX = gN.x0 + 6;
+                          const endY = gN.y0 + 8;
+                          const midX = (startX + endX) / 2;
+                          const midY = (startY + endY) / 2 + 8;
+                          const active = stage > i;
+                          return (
+                            <path
+                              key={i}
+                              d={`M ${startX} ${startY} Q ${midX} ${midY} ${endX} ${endY}`}
+                              fill="none"
+                              stroke={COLORS.hole}
+                              strokeWidth={active ? 2.5 : 1.3}
+                              strokeDasharray={active ? "0" : "4,3"}
+                              opacity={active ? 0.95 : 0.45}
+                              markerEnd="url(#arrowHead)"
+                              style={{ transition: "all 0.4s ease" }}
+                            />
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
+                </svg>
+              </Card>
+
+              <Card>
+                <p className="text-xs text-center mb-3" style={{ color: COLORS.inkSoft }}>
+                  Water drains out until its surface reaches the <span style={{ color: COLORS.hole, fontWeight: 700 }}>bottom of the hole</span> — then it stops, leaving the rest behind.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {activeChain.slice(0, -1).map((t, i) => {
+                    const active = stage > i;
+                    return (
+                      <div
+                        key={i}
+                        className="text-xs font-mono rounded-lg py-2 px-3 flex items-center justify-between transition-opacity"
+                        style={{ background: active ? COLORS.holeBg : COLORS.paper, opacity: active ? 1 : 0.55 }}
+                      >
+                        <span style={{ color: COLORS.ink }}>
+                          {t.name}: {fmt(t.waterHeight)} → {fmt(t.sill)} cm
+                        </span>
+                        <span style={{ color: COLORS.inkSoft }}>
+                          {fmt(simSteps.areas[i])} × {fmt(Math.max(0, t.waterHeight - t.sill))} = <strong style={{ color: COLORS.hole }}>{fmt(simSteps.drainedVols[i])} cm³</strong> → {activeChain[i + 1].name}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {chainOverflows.some(Boolean) && stage === totalDrainSteps && (
+                  <div className="mt-2 text-xs text-center font-medium flex items-center justify-center gap-1" style={{ color: COLORS.warn }}>
+                    <Droplet size={12} /> One tank receives more water than it can hold — it would overflow.
+                  </div>
+                )}
+              </Card>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+return VolumeLab;
+})();
+
+const NetsLab = (function() {
+
+const COLORS = {
+  paper: "#F3F0E7",
+  card: "#FFFFFF",
+  border: "#E2DED0",
+  ink: "#1C2531",
+  inkSoft: "#6E7885",
+  amber: "#D9862A",
+  amberBg: "#FBEAD3",
+  green: "#3E8F62",
+  greenBg: "#E4F1E8",
+  warn: "#C24B2C",
+  warnBg: "#FBE7E1",
+  grid: "#DEE6EC",
+};
+const FONT_HEAD = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
+const CARD_SHADOW = "0 1px 2px rgba(28,37,49,0.04), 0 10px 28px -14px rgba(28,37,49,0.22)";
+const FACE_PALETTE = ["#F3D3A6", "#A9DBF7", "#BFE3C8", "#DCC5EF", "#F5B9B2", "#D8D2EF", "#F6D6E8", "#CFE3D6"];
+
+// ---------- starting templates (grid coords: r = row, c = column) ----------
+const TEMPLATES = [
+  { id: "cross", label: "Cross", cells: [{ r: 1, c: 1 }, { r: 0, c: 1 }, { r: 2, c: 1 }, { r: 1, c: 0 }, { r: 1, c: 2 }, { r: 1, c: 3 }] },
+  { id: "t-tail", label: "T with tail", cells: [{ r: 1, c: 1 }, { r: 0, c: 1 }, { r: 1, c: 0 }, { r: 1, c: 2 }, { r: 2, c: 1 }, { r: 3, c: 1 }] },
+  { id: "row4-ends", label: "Row of 4 + 2 ends", cells: [{ r: 1, c: 0 }, { r: 1, c: 1 }, { r: 1, c: 2 }, { r: 1, c: 3 }, { r: 0, c: 0 }, { r: 2, c: 3 }] },
+  { id: "s-offset", label: "S-shape", cells: [{ r: 0, c: 0 }, { r: 0, c: 1 }, { r: 0, c: 2 }, { r: 1, c: 2 }, { r: 1, c: 3 }, { r: 1, c: 4 }] },
+  { id: "rect2x3", label: "2 × 3 rectangle", cells: [{ r: 0, c: 0 }, { r: 0, c: 1 }, { r: 0, c: 2 }, { r: 1, c: 0 }, { r: 1, c: 1 }, { r: 1, c: 2 }] },
+  { id: "line6", label: "Straight line of 6", cells: [{ r: 0, c: 0 }, { r: 0, c: 1 }, { r: 0, c: 2 }, { r: 0, c: 3 }, { r: 0, c: 4 }, { r: 0, c: 5 }] },
+  { id: "block2x2", label: "2×2 block + 2", cells: [{ r: 1, c: 1 }, { r: 0, c: 1 }, { r: 2, c: 1 }, { r: 1, c: 0 }, { r: 1, c: 2 }, { r: 2, c: 0 }] },
+];
+
+const EDIT_COLS = 8;
+const EDIT_ROWS = 5;
+
+// ---------- tree + hinge geometry ----------
+const HINGE = {
+  right: { ox: 1, oy: 0, origin: "0% 50%", axis: "Y", sign: -1 },
+  left: { ox: -1, oy: 0, origin: "100% 50%", axis: "Y", sign: 1 },
+  down: { ox: 0, oy: 1, origin: "50% 0%", axis: "X", sign: 1 },
+  up: { ox: 0, oy: -1, origin: "50% 100%", axis: "X", sign: -1 },
+};
+
+function buildTree(cells) {
+  const key = (r, c) => `${r},${c}`;
+  const map = new Map();
+  cells.forEach((cell, i) => map.set(key(cell.r, cell.c), i));
+  const nodeByIndex = {};
+  const root = { index: 0, dir: null, children: [] };
+  nodeByIndex[0] = root;
+  const visited = new Set([0]);
+  const queue = [0];
+  const DIRS = [["up", -1, 0], ["down", 1, 0], ["left", 0, -1], ["right", 0, 1]];
+  while (queue.length) {
+    const cur = queue.shift();
+    const { r, c } = cells[cur];
+    for (const [dir, dr, dc] of DIRS) {
+      const nk = key(r + dr, c + dc);
+      if (map.has(nk)) {
+        const ni = map.get(nk);
+        if (!visited.has(ni)) {
+          visited.add(ni);
+          const node = { index: ni, dir, children: [] };
+          nodeByIndex[cur].children.push(node);
+          nodeByIndex[ni] = node;
+          queue.push(ni);
+        }
+      }
+    }
+  }
+  return { root, reachedCount: visited.size };
+}
+
+// ---------- rigorous fold validity, computed from actual 3D rotation ----------
+function rotX(deg) {
+  const r = (deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  return [[1, 0, 0], [0, c, -s], [0, s, c]];
+}
+function rotY(deg) {
+  const r = (deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  return [[c, 0, s], [0, 1, 0], [-s, 0, c]];
+}
+function matMul(a, b) {
+  const res = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) res[i][j] += a[i][k] * b[k][j];
+  return res;
+}
+function matVec(m, v) {
+  return [0, 1, 2].map((i) => m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2]);
+}
+const IDENTITY = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
+function evaluateNet(cells) {
+  if (cells.length !== 6) return { valid: false, reason: `A cube needs exactly 6 squares — this has ${cells.length}.` };
+  const { root, reachedCount } = buildTree(cells);
+  if (reachedCount !== cells.length) return { valid: false, reason: "Some squares aren't connected to the rest, so they can't fold along with it." };
+
+  const normals = {};
+  (function walk(node, M) {
+    normals[node.index] = matVec(M, [0, 0, 1]).map((x) => Math.round(x));
+    node.children.forEach((ch) => {
+      const h = HINGE[ch.dir];
+      const local = h.axis === "Y" ? rotY(h.sign * 90) : rotX(h.sign * 90);
+      walk(ch, matMul(M, local));
+    });
+  })(root, IDENTITY);
+
+  const keys = Object.values(normals).map((v) => v.join(","));
+  if (new Set(keys).size !== 6) return { valid: false, reason: "Two of the faces land on top of each other when it's folded up." };
+
+  // pair each face with the one whose normal points the opposite way
+  const opposite = [];
+  const used = new Set();
+  Object.keys(normals).forEach((i) => {
+    i = Number(i);
+    if (used.has(i)) return;
+    const n = normals[i];
+    const j = Object.keys(normals).map(Number).find((k) => !used.has(k) && k !== i && normals[k][0] === -n[0] && normals[k][1] === -n[1] && normals[k][2] === -n[2]);
+    if (j !== undefined) {
+      opposite.push([i, j]);
+      used.add(i);
+      used.add(j);
+    }
+  });
+  return { valid: true, opposite, root };
+}
+
+let idCounter = 1;
+function makeCells(raw) {
+  return raw.map((c, i) => ({ id: idCounter++, r: c.r, c: c.c, label: String(i + 1) }));
+}
+
+function FaceNode({ node, cells, faceSize, folded, flip, animate }) {
+  const { index, dir, children } = node;
+  const cell = cells[index];
+  let style;
+  if (dir) {
+    const m = HINGE[dir];
+    const angle = folded ? m.sign * 90 * flip : 0;
+    style = {
+      position: "absolute",
+      left: m.ox * faceSize,
+      top: m.oy * faceSize,
+      width: faceSize,
+      height: faceSize,
+      transformOrigin: m.origin,
+      transform: m.axis === "Y" ? `rotateY(${angle}deg)` : `rotateX(${angle}deg)`,
+      transformStyle: "preserve-3d",
+      transition: animate ? "transform 2.4s cubic-bezier(.4,.1,.2,1)" : "none",
+    };
+  } else {
+    style = { position: "absolute", left: 0, top: 0, width: faceSize, height: faceSize, transformStyle: "preserve-3d" };
+  }
+  return (
+    <div style={style}>
+      <div
+        style={{
+          position: "absolute", inset: 0, background: FACE_PALETTE[index % FACE_PALETTE.length],
+          border: `2px solid ${COLORS.ink}`, display: "flex", alignItems: "center", justifyContent: "center",
+          fontWeight: 700, fontSize: Math.max(14, faceSize * 0.32), fontFamily: FONT_HEAD, color: COLORS.ink,
+        }}
+      >
+        {cell.label}
+      </div>
+      {children.map((ch) => (
+        <FaceNode key={ch.index} node={ch} cells={cells} faceSize={faceSize} folded={folded} flip={flip} animate={animate} />
+      ))}
+    </div>
+  );
+}
+
+function GridEditor({ cells, onToggle, onClear }) {
+  return (
+    <div>
+      <div
+        className="grid rounded-lg overflow-hidden"
+        style={{ gridTemplateColumns: `repeat(${EDIT_COLS}, 1fr)`, border: `1px solid ${COLORS.border}`, background: COLORS.paper }}
+      >
+        {Array.from({ length: EDIT_ROWS }).map((_, r) =>
+          Array.from({ length: EDIT_COLS }).map((_, c) => {
+            const idx = cells.findIndex((cell) => cell.r === r && cell.c === c);
+            const active = idx !== -1;
+            return (
+              <button
+                key={`${r}-${c}`}
+                onClick={() => onToggle(r, c)}
+                style={{
+                  aspectRatio: "1", background: active ? FACE_PALETTE[idx % FACE_PALETTE.length] : "transparent",
+                  border: `1px solid ${COLORS.border}`, cursor: "pointer",
+                }}
+              />
+            );
+          })
+        )}
+      </div>
+      <button onClick={onClear} className="flex items-center gap-1.5 text-xs font-medium mt-2 opacity-70 hover:opacity-100" style={{ color: COLORS.inkSoft }}>
+        <Eraser size={12} /> Clear grid
+      </button>
+    </div>
+  );
+}
+
+function NetsLab() {
+  const [cells, setCells] = useState(() => makeCells(TEMPLATES[0].cells));
+  const [folded, setFolded] = useState(false);
+  const [flip, setFlip] = useState(1);
+  const [autoRotate, setAutoRotate] = useState(false);
+  const [viewX, setViewX] = useState(-24);
+  const [viewY, setViewY] = useState(-32);
+  const dragRef = useRef(null);
+
+  const evalResult = evaluateNet(cells);
+  const faceSize = 60;
+
+  useEffect(() => {
+    if (!autoRotate) return;
+    const iv = setInterval(() => setViewY((v) => v + 0.6), 30);
+    return () => clearInterval(iv);
+  }, [autoRotate]);
+
+  function clampNum(v, min, max) {
+    return Math.min(max, Math.max(min, v));
+  }
+  const onPointerMove = (e) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.x;
+    const dy = e.clientY - dragRef.current.y;
+    setViewY(dragRef.current.vy + dx * 0.5);
+    setViewX(clampNum(dragRef.current.vx - dy * 0.5, -85, 85));
+  };
+  const onPointerUp = () => {
+    dragRef.current = null;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+  };
+  const onPointerDown = (e) => {
+    dragRef.current = { x: e.clientX, y: e.clientY, vx: viewX, vy: viewY };
+    setAutoRotate(false);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  };
+
+  const toggleCell = (r, c) => {
+    setFolded(false);
+    setCells((cs) => {
+      const idx = cs.findIndex((cell) => cell.r === r && cell.c === c);
+      if (idx !== -1) return cs.filter((_, i) => i !== idx);
+      return [...cs, { id: idCounter++, r, c, label: String(cs.length + 1) }];
+    });
+  };
+
+  const loadTemplate = (t) => {
+    setCells(makeCells(t.cells));
+    setFolded(false);
+  };
+
+  return (
+    <div className="w-full min-h-screen" style={{ background: COLORS.paper, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');
+        .lbl-input { width: 38px; text-align:center; border-radius:8px; border:1px solid ${COLORS.border}; padding:4px 0; font-family:${FONT_HEAD}; font-weight:700; font-size:12px; }
+      `}</style>
+      <div
+        className="max-w-5xl mx-auto px-6 py-8"
+        style={{ backgroundImage: `linear-gradient(${COLORS.grid} 1px, transparent 1px), linear-gradient(90deg, ${COLORS.grid} 1px, transparent 1px)`, backgroundSize: "26px 26px" }}
+      >
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="flex items-center justify-center rounded-lg" style={{ width: 34, height: 34, background: COLORS.ink }}>
+            <Box size={18} color={COLORS.amberBg} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: COLORS.amber }}>Geometry · Nets</div>
+            <h1 className="text-2xl leading-tight font-bold" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>Nets Lab</h1>
+          </div>
+        </div>
+        <p className="text-sm mb-6 ml-[44px]" style={{ color: COLORS.inkSoft }}>
+          Click squares onto the grid to build your own net, then fold it — the tool checks in real 3D whether it actually closes into a cube.
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-5">
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: COLORS.inkSoft }}>Build your net</span>
+                <span
+                  className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ color: cells.length === 6 ? COLORS.green : COLORS.amber, background: cells.length === 6 ? COLORS.greenBg : COLORS.amberBg }}
+                >
+                  {cells.length} / 6
+                </span>
+              </div>
+              <GridEditor cells={cells} onToggle={toggleCell} onClear={() => { setCells([]); setFolded(false); }} />
+              <div className="text-[11px] mt-2" style={{ color: COLORS.inkSoft }}>Click a square to add it, click again to remove it.</div>
+            </div>
+
+            <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: COLORS.inkSoft }}>Start from a template</div>
+              <div className="flex flex-wrap gap-1.5">
+                {TEMPLATES.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => loadTemplate(t)}
+                    className="text-[11px] font-semibold rounded-full px-2.5 py-1"
+                    style={{ background: COLORS.paper, color: COLORS.inkSoft }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: COLORS.inkSoft }}>Face labels</div>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {cells.map((cell, i) => (
+                  <input
+                    key={cell.id}
+                    className="lbl-input"
+                    value={cell.label}
+                    maxLength={2}
+                    style={{ background: FACE_PALETTE[i % FACE_PALETTE.length] + "55" }}
+                    onChange={(e) => setCells((cs) => cs.map((c) => (c.id === cell.id ? { ...c, label: e.target.value } : c)))}
+                  />
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setCells((cs) => cs.map((c, i) => ({ ...c, label: String(i + 1) })))} className="flex-1 text-xs font-semibold rounded-lg py-1.5" style={{ background: COLORS.paper, color: COLORS.inkSoft }}>1–6</button>
+                <button onClick={() => setCells((cs) => cs.map((c, i) => ({ ...c, label: "ABCDEFGH"[i] || "?" })))} className="flex-1 text-xs font-semibold rounded-lg py-1.5" style={{ background: COLORS.paper, color: COLORS.inkSoft }}>A–F</button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setFolded((f) => !f)}
+              className="flex items-center justify-center gap-2 rounded-full py-2.5 text-sm font-semibold transition-colors"
+              style={{ background: folded ? COLORS.amberBg : COLORS.ink, color: folded ? COLORS.amber : "#fff", boxShadow: CARD_SHADOW }}
+            >
+              <Box size={15} />
+              {folded ? "Unfold" : "Fold it up"}
+            </button>
+            <div className="flex gap-2">
+              <button onClick={() => setFlip((f) => -f)} className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-full py-2 opacity-70 hover:opacity-100" style={{ color: COLORS.inkSoft }}>
+                <Repeat size={12} /> Flip fold direction
+              </button>
+              <button onClick={() => setAutoRotate((a) => !a)} className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-full py-2" style={{ color: autoRotate ? COLORS.amber : COLORS.inkSoft, opacity: autoRotate ? 1 : 0.7 }}>
+                <Shuffle size={12} /> {autoRotate ? "Stop spin" : "Auto-spin"}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              {cells.length > 0 ? (
+                <div
+                  onPointerDown={onPointerDown}
+                  style={{ perspective: 900, height: 300, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", touchAction: "none" }}
+                >
+                  <div
+                    style={{
+                      position: "relative", width: faceSize, height: faceSize, transformStyle: "preserve-3d",
+                      transform: `rotateX(${viewX}deg) rotateY(${viewY}deg)`,
+                      transition: dragRef.current ? "none" : "transform 0.15s linear",
+                    }}
+                  >
+                    <FaceNode node={evalResult.root ?? buildTree(cells).root} cells={cells} faceSize={faceSize} folded={folded} flip={flip} animate={true} />
+                  </div>
+                </div>
+              ) : (
+                <div style={{ height: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span className="text-sm" style={{ color: COLORS.inkSoft }}>Click squares on the grid to start building a net</span>
+                </div>
+              )}
+              <div className="text-center text-[11px] mt-1" style={{ color: COLORS.inkSoft }}>Drag to rotate the shape</div>
+            </div>
+
+            {cells.length > 0 && (
+              <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+                {evalResult.valid ? (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-2 justify-center">
+                      <CheckCircle2 size={14} color={COLORS.green} />
+                      <span className="text-xs font-bold" style={{ color: COLORS.green }}>This net folds into a closed cube</span>
+                    </div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-center mb-2" style={{ color: COLORS.inkSoft }}>Opposite faces</div>
+                    <div className="flex justify-center gap-3 flex-wrap">
+                      {evalResult.opposite.map((pair, i) => (
+                        <div key={i} className="flex items-center gap-1.5 rounded-full px-3 py-1" style={{ background: COLORS.paper }}>
+                          <span className="text-sm font-bold" style={{ fontFamily: FONT_HEAD, color: COLORS.ink }}>{cells[pair[0]].label}</span>
+                          <span style={{ color: COLORS.inkSoft }}>↔</span>
+                          <span className="text-sm font-bold" style={{ fontFamily: FONT_HEAD, color: COLORS.ink }}>{cells[pair[1]].label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-2 justify-center">
+                      <XCircle size={14} color={COLORS.warn} />
+                      <span className="text-xs font-bold" style={{ color: COLORS.warn }}>This net will not fold into a closed cube</span>
+                    </div>
+                    <p className="text-xs text-center" style={{ color: COLORS.inkSoft }}>{evalResult.reason}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+return NetsLab;
+})();
+
+const MoneyLab = (function() {
+
+const COLORS = {
+  paper: "#F3F0E7",
+  card: "#FFFFFF",
+  border: "#E2DED0",
+  ink: "#1C2531",
+  inkSoft: "#6E7885",
+  amber: "#D9862A",
+  amberBg: "#FBEAD3",
+  green: "#3E8F62",
+  greenBg: "#E4F1E8",
+  warn: "#C24B2C",
+  warnBg: "#FBE7E1",
+  grid: "#DEE6EC",
+};
+const FONT_HEAD = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
+const CARD_SHADOW = "0 1px 2px rgba(28,37,49,0.04), 0 10px 28px -14px rgba(28,37,49,0.22)";
+
+// values in cents to avoid floating-point drift
+const COINS = [
+  { value: 5, label: "5¢", size: 34, ring: "#C99A5B", center: "#DCB57D" },
+  { value: 10, label: "10¢", size: 38, ring: "#AEB6BE", center: "#C9D0D6" },
+  { value: 20, label: "20¢", size: 42, ring: "#9FA8B1", center: "#BFC7CE" },
+  { value: 50, label: "50¢", size: 46, ring: "#8E97A1", center: "#B2BAC2" },
+  { value: 100, label: "$1", size: 50, ring: "#D6AE45", center: "#CBD1D6" },
+];
+const NOTES = [
+  { value: 200, label: "$2", color: "#7D5AA0" },
+  { value: 500, label: "$5", color: "#4E9B6B" },
+  { value: 1000, label: "$10", color: "#C0483A" },
+  { value: 5000, label: "$50", color: "#3E7FA0" },
+  { value: 10000, label: "$100", color: "#D98A3D" },
+];
+const ALL = [...COINS.map((c) => ({ ...c, type: "coin" })), ...NOTES.map((n) => ({ ...n, type: "note" }))];
+
+function fmt(cents) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function greedyFill(targetCents) {
+  let remaining = targetCents;
+  const counts = {};
+  [...ALL].sort((a, b) => b.value - a.value).forEach((d) => {
+    const n = Math.floor(remaining / d.value);
+    if (n > 0) counts[d.value] = n;
+    remaining -= n * d.value;
+  });
+  return counts;
+}
+
+function Coin({ d, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Remove one"
+      style={{
+        width: d.size, height: d.size, borderRadius: "50%",
+        background: `radial-gradient(circle at 35% 30%, ${d.center}, ${d.ring})`,
+        border: `2px solid ${COLORS.ink}`, display: "flex", alignItems: "center", justifyContent: "center",
+        fontFamily: FONT_HEAD, fontWeight: 700, fontSize: d.size * 0.27, color: COLORS.ink, cursor: "pointer",
+        boxShadow: "0 1px 2px rgba(28,37,49,0.25)", flexShrink: 0,
+      }}
+    >
+      {d.label}
+    </button>
+  );
+}
+
+function Note({ d, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Remove one"
+      style={{
+        width: 78, height: 40, borderRadius: 6, background: d.color, border: `2px solid ${COLORS.ink}`,
+        display: "flex", alignItems: "center", justifyContent: "center", position: "relative", cursor: "pointer",
+        boxShadow: "0 1px 2px rgba(28,37,49,0.25)", flexShrink: 0,
+      }}
+    >
+      <div style={{ position: "absolute", inset: 3, border: "1px dashed rgba(255,255,255,0.55)", borderRadius: 3 }} />
+      <span style={{ fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 15, color: "#fff" }}>{d.label}</span>
+    </button>
+  );
+}
+
+function Eyebrow({ children }) {
+  return <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: COLORS.inkSoft }}>{children}</div>;
+}
+
+function MoneyLab() {
+  const [counts, setCounts] = useState({});
+  const [target, setTarget] = useState("");
+  const [showTotal, setShowTotal] = useState(true);
+
+  const add = (value) => setCounts((c) => ({ ...c, [value]: (c[value] || 0) + 1 }));
+  const remove = (value) =>
+    setCounts((c) => {
+      const n = (c[value] || 0) - 1;
+      const next = { ...c };
+      if (n <= 0) delete next[value];
+      else next[value] = n;
+      return next;
+    });
+  const clearAll = () => setCounts({});
+
+  const total = Object.entries(counts).reduce((sum, [v, n]) => sum + Number(v) * n, 0);
+  const targetCents = target === "" ? null : Math.round(parseFloat(target) * 100);
+  const diff = targetCents !== null ? targetCents - total : null;
+
+  const generate = () => {
+    if (targetCents === null || isNaN(targetCents) || targetCents <= 0) return;
+    setCounts(greedyFill(targetCents));
+  };
+
+  const activeDenoms = ALL.filter((d) => counts[d.value] > 0).sort((a, b) => b.value - a.value);
+
+  return (
+    <div className="w-full min-h-screen" style={{ background: COLORS.paper, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');`}</style>
+      <div
+        className="max-w-5xl mx-auto px-6 py-8"
+        style={{ backgroundImage: `linear-gradient(${COLORS.grid} 1px, transparent 1px), linear-gradient(90deg, ${COLORS.grid} 1px, transparent 1px)`, backgroundSize: "26px 26px" }}
+      >
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="flex items-center justify-center rounded-lg" style={{ width: 34, height: 34, background: COLORS.ink }}>
+            <Wallet size={18} color={COLORS.amberBg} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: COLORS.amber }}>Money · SGD</div>
+            <h1 className="text-2xl leading-tight font-bold" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>Money Box</h1>
+          </div>
+        </div>
+        <p className="text-sm mb-6 ml-[44px]" style={{ color: COLORS.inkSoft }}>
+          Tap coins and notes to add them to the tray, or type an amount to generate it instantly.
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-5">
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              <Eyebrow>Coins</Eyebrow>
+              <div className="flex flex-col gap-2 mb-4">
+                {COINS.map((d) => (
+                  <DenomRow key={d.value} d={d} count={counts[d.value] || 0} onAdd={() => add(d.value)} onRemove={() => remove(d.value)} preview={<Coin d={{ ...d, size: 30 }} onClick={() => {}} />} />
+                ))}
+              </div>
+              <Eyebrow>Notes</Eyebrow>
+              <div className="flex flex-col gap-2">
+                {NOTES.map((d) => (
+                  <DenomRow key={d.value} d={d} count={counts[d.value] || 0} onAdd={() => add(d.value)} onRemove={() => remove(d.value)} preview={<div style={{ width: 30, height: 18, borderRadius: 3, background: d.color, border: `1.5px solid ${COLORS.ink}` }} />} />
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              <Eyebrow>Make an amount</Eyebrow>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-bold" style={{ color: COLORS.inkSoft }}>$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.05"
+                  placeholder="13.70"
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                  className="flex-1 text-sm rounded-lg border px-2.5 py-1.5 outline-none"
+                  style={{ borderColor: COLORS.border, color: COLORS.ink, fontFamily: FONT_HEAD, fontWeight: 700 }}
+                />
+              </div>
+              <button
+                onClick={generate}
+                className="w-full flex items-center justify-center gap-1.5 rounded-full py-2 text-xs font-semibold"
+                style={{ background: COLORS.amberBg, color: COLORS.amber }}
+              >
+                <Sparkles size={13} /> Generate with fewest pieces
+              </button>
+            </div>
+
+            <button
+              onClick={clearAll}
+              className="flex items-center justify-center gap-2 rounded-full py-2.5 text-sm font-semibold"
+              style={{ background: COLORS.ink, color: "#fff", boxShadow: CARD_SHADOW }}
+            >
+              <RotateCcw size={14} /> Clear tray
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl p-4 text-center" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              <div className="flex items-center justify-center gap-2 mb-0.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: COLORS.inkSoft }}>Total in the tray</span>
+                <button
+                  onClick={() => setShowTotal((s) => !s)}
+                  className="flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5"
+                  style={{ background: showTotal ? COLORS.paper : COLORS.amberBg, color: showTotal ? COLORS.inkSoft : COLORS.amber }}
+                >
+                  {showTotal ? <EyeOff size={11} /> : <Eye size={11} />}
+                  {showTotal ? "Hide" : "Reveal"}
+                </button>
+              </div>
+              {showTotal ? (
+                <>
+                  <div className="text-4xl font-bold tabular-nums" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>{fmt(total)}</div>
+                  {targetCents !== null && !isNaN(targetCents) && (
+                    <div
+                      className="inline-flex items-center gap-1.5 mt-2 rounded-full px-3 py-1 text-xs font-semibold"
+                      style={{
+                        background: diff === 0 ? COLORS.greenBg : COLORS.amberBg,
+                        color: diff === 0 ? COLORS.green : COLORS.amber,
+                      }}
+                    >
+                      {diff === 0 ? (
+                        <>
+                          <CheckCircle2 size={13} /> Matches the target of {fmt(targetCents)}
+                        </>
+                      ) : diff > 0 ? (
+                        `Needs ${fmt(diff)} more to reach ${fmt(targetCents)}`
+                      ) : (
+                        `${fmt(-diff)} over the target of ${fmt(targetCents)}`
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-4xl font-bold tabular-nums select-none" style={{ color: COLORS.border, fontFamily: FONT_HEAD, letterSpacing: 4 }}>
+                  ? ? ? ?
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl p-4 min-h-[220px]" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              {activeDenoms.length === 0 ? (
+                <div className="h-full flex items-center justify-center" style={{ minHeight: 180 }}>
+                  <span className="text-sm" style={{ color: COLORS.inkSoft }}>Tap a coin or note to add it here</span>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {activeDenoms.map((d) => {
+                    const n = counts[d.value];
+                    return (
+                      <div key={d.value}>
+                        <div className="text-xs font-mono mb-1.5" style={{ color: COLORS.inkSoft }}>
+                          {showTotal ? (
+                            <>
+                              {n} × {d.label} = <strong style={{ color: COLORS.ink }}>{fmt(d.value * n)}</strong>
+                            </>
+                          ) : (
+                            <span>{d.label} pieces</span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {Array.from({ length: n }).map((_, i) =>
+                            d.type === "coin" ? <Coin key={i} d={d} onClick={() => remove(d.value)} /> : <Note key={i} d={d} onClick={() => remove(d.value)} />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DenomRow({ d, count, onAdd, onRemove, preview }) {
+  return (
+    <div className="flex items-center gap-2">
+      {preview}
+      <span className="text-xs font-semibold flex-1" style={{ color: COLORS.ink }}>{d.label}</span>
+      <button onClick={onRemove} disabled={count === 0} className="rounded-full disabled:opacity-30" style={{ background: COLORS.paper, width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Minus size={12} color={COLORS.inkSoft} />
+      </button>
+      <span className="text-xs font-bold w-4 text-center tabular-nums" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>{count}</span>
+      <button onClick={onAdd} className="rounded-full" style={{ background: COLORS.amberBg, width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Plus size={12} color={COLORS.amber} />
+      </button>
+    </div>
+  );
+}
+
+return MoneyLab;
+})();
+
+const FractionLab = (function() {
+
+const COLORS = {
+  paper: "#F3F0E7",
+  card: "#FFFFFF",
+  border: "#E2DED0",
+  ink: "#1C2531",
+  inkSoft: "#6E7885",
+  amber: "#D9862A",
+  amberBg: "#FBEAD3",
+  grid: "#DEE6EC",
+};
+const FONT_HEAD = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
+const CARD_SHADOW = "0 1px 2px rgba(28,37,49,0.04), 0 10px 28px -14px rgba(28,37,49,0.22)";
+
+const PALETTE = ["#D6534A", "#E0813C", "#E3AA3D", "#B9C23B", "#4FA65B", "#3FA79A", "#3E8EDE", "#6E64C9", "#9C5DBE", "#C9509B", "#B6486B", "#7A5A48"];
+const BAR_DENOMS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const CIRCLE_DENOMS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+function fracToDecimal(n, d) {
+  return (n / d).toFixed(2);
+}
+function fracToPercent(n, d) {
+  return Math.round((n / d) * 100);
+}
+
+function wedgePath(cx, cy, r, startDeg, endDeg) {
+  const toRad = (deg) => ((deg - 90) * Math.PI) / 180;
+  const x1 = cx + r * Math.cos(toRad(startDeg));
+  const y1 = cy + r * Math.sin(toRad(startDeg));
+  const x2 = cx + r * Math.cos(toRad(endDeg));
+  const y2 = cy + r * Math.sin(toRad(endDeg));
+  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
+  return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+}
+
+function Eyebrow({ children }) {
+  return <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: COLORS.inkSoft }}>{children}</div>;
+}
+
+function FractionLab() {
+  const [tab, setTab] = useState("bars");
+  const [bars, setBars] = useState(() => Object.fromEntries(BAR_DENOMS.map((d) => [d, Array(d).fill(false)])));
+  const [circles, setCircles] = useState(() => Object.fromEntries(CIRCLE_DENOMS.map((d) => [d, Array(d).fill(false)])));
+  const [hideValues, setHideValues] = useState(false);
+  const [pieces, setPieces] = useState([]);
+  const workspaceRef = useRef(null);
+  const dragRef = useRef(null);
+  const pieceIdRef = useRef(1);
+
+  const TRACK_WIDTH = 600;
+  const LANE_H = 42;
+
+  const spawnPiece = (d) => {
+    setPieces((ps) => [...ps, { id: pieceIdRef.current++, d, x: 8, y: 8 + (ps.length % 6) * LANE_H }]);
+  };
+  const clearPieces = () => setPieces([]);
+
+  const onPieceDown = (e, piece) => {
+    e.stopPropagation();
+    dragRef.current = { id: piece.id, startX: e.clientX, startY: e.clientY, origX: piece.x, origY: piece.y, moved: false };
+    window.addEventListener("pointermove", onPieceMove);
+    window.addEventListener("pointerup", onPieceUp);
+  };
+  const onPieceMove = (e) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) d.moved = true;
+    const rect = workspaceRef.current?.getBoundingClientRect();
+    const maxX = rect ? rect.width - 20 : 900;
+    const maxY = rect ? rect.height - 20 : 400;
+    setPieces((ps) =>
+      ps.map((p) => (p.id === d.id ? { ...p, x: Math.min(maxX, Math.max(0, d.origX + dx)), y: Math.min(maxY, Math.max(0, d.origY + dy)) } : p))
+    );
+  };
+  const onPieceUp = () => {
+    const d = dragRef.current;
+    window.removeEventListener("pointermove", onPieceMove);
+    window.removeEventListener("pointerup", onPieceUp);
+    if (!d) return;
+    if (!d.moved) {
+      setPieces((ps) => ps.filter((p) => p.id !== d.id)); // treat as a tap: remove the piece
+    } else {
+      setPieces((ps) => ps.map((p) => (p.id === d.id ? { ...p, x: p.x < 12 ? 0 : p.x, y: Math.round(p.y / LANE_H) * LANE_H } : p)));
+    }
+    dragRef.current = null;
+  };
+
+  const toggleBar = (d, i) => setBars((b) => ({ ...b, [d]: b[d].map((v, ii) => (ii === i ? !v : v)) }));
+  const toggleCircle = (d, i) => setCircles((c) => ({ ...c, [d]: c[d].map((v, ii) => (ii === i ? !v : v)) }));
+  const clearBars = () => setBars(Object.fromEntries(BAR_DENOMS.map((d) => [d, Array(d).fill(false)])));
+  const clearCircles = () => setCircles(Object.fromEntries(CIRCLE_DENOMS.map((d) => [d, Array(d).fill(false)])));
+
+  const guideLines = BAR_DENOMS.flatMap((d) =>
+    bars[d].reduce((lines, shaded, i) => {
+      if (shaded) lines.push({ key: `${d}-${i}`, frac: (i + 1) / d, color: PALETTE[d - 1] });
+      return lines;
+    }, [])
+  );
+
+  return (
+    <div className="w-full min-h-screen" style={{ background: COLORS.paper, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');`}</style>
+      <div
+        className="max-w-4xl mx-auto px-6 py-8"
+        style={{ backgroundImage: `linear-gradient(${COLORS.grid} 1px, transparent 1px), linear-gradient(90deg, ${COLORS.grid} 1px, transparent 1px)`, backgroundSize: "26px 26px" }}
+      >
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="flex items-center justify-center rounded-lg" style={{ width: 34, height: 34, background: COLORS.ink }}>
+            <PieChart size={18} color={COLORS.amberBg} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: COLORS.amber }}>Fractions</div>
+            <h1 className="text-2xl leading-tight font-bold" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>Fraction Toy</h1>
+          </div>
+        </div>
+        <p className="text-sm mb-6 ml-[44px]" style={{ color: COLORS.inkSoft }}>
+          Tap pieces to shade them in, just like the tile set — bars line up to show equivalent fractions, circles fill in like a pie.
+        </p>
+
+        <div className="flex items-center justify-between mb-5">
+          <div className="inline-flex p-1 rounded-full" style={{ background: "#EAE6D9" }}>
+            {[
+              { id: "bars", label: "Bars", icon: <Rows3 size={13} /> },
+              { id: "circles", label: "Circles", icon: <PieChart size={13} /> },
+              { id: "compare", label: "Compare", icon: <SlidersHorizontal size={13} /> },
+            ].map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded-full transition-all"
+                style={{ background: tab === t.id ? COLORS.ink : "transparent", color: tab === t.id ? "#fff" : COLORS.inkSoft }}
+              >
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            {tab !== "compare" && (
+              <button
+                onClick={() => setHideValues((v) => !v)}
+                className="flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5"
+                style={{ background: hideValues ? COLORS.amberBg : COLORS.card, color: hideValues ? COLORS.amber : COLORS.inkSoft, border: `1px solid ${COLORS.border}` }}
+              >
+                {hideValues ? <Eye size={13} /> : <EyeOff size={13} />}
+                {hideValues ? "Reveal totals" : "Hide totals"}
+              </button>
+            )}
+            <button
+              onClick={tab === "bars" ? clearBars : tab === "circles" ? clearCircles : clearPieces}
+              className="flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5"
+              style={{ background: COLORS.card, color: COLORS.inkSoft, border: `1px solid ${COLORS.border}` }}
+            >
+              <RotateCcw size={12} /> Clear
+            </button>
+          </div>
+        </div>
+
+        {tab === "bars" ? (
+          <div className="rounded-2xl p-5" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+            <div style={{ position: "relative" }}>
+              <div style={{ position: "absolute", left: 64, right: 0, top: 0, bottom: 0, pointerEvents: "none", boxSizing: "border-box" }}>
+                {guideLines.map((g) => (
+                  <div key={g.key} style={{ position: "absolute", left: `${g.frac * 100}%`, top: 0, bottom: 0, width: 2, background: g.color, opacity: 0.55 }} />
+                ))}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {BAR_DENOMS.map((d) => {
+                  const row = bars[d];
+                  const shadedCount = row.filter(Boolean).length;
+                  const color = PALETTE[d - 1];
+                  return (
+                    <div key={d} className="flex items-center gap-2">
+                      <div style={{ width: 56, flexShrink: 0 }} className="text-right">
+                        <div className="text-xs font-bold" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>1/{d}</div>
+                        {!hideValues && <div className="text-[10px]" style={{ color: COLORS.inkSoft }}>{fracToDecimal(1, d)}</div>}
+                      </div>
+                      <div className="flex-1 flex" style={{ height: 32, borderRadius: 5, overflow: "hidden", border: `1.5px solid ${COLORS.ink}`, boxSizing: "border-box" }}>
+                        {row.map((shaded, i) => (
+                          <button
+                            key={i}
+                            onClick={() => toggleBar(d, i)}
+                            style={{
+                              flex: 1, background: shaded ? color : "#fff",
+                              borderRight: i < d - 1 ? `1.5px solid ${COLORS.ink}` : "none",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: d > 6 ? 9 : 11, fontWeight: 700, fontFamily: FONT_HEAD,
+                              color: shaded ? "#fff" : COLORS.inkSoft, cursor: "pointer",
+                            }}
+                          >
+                            {d <= 8 ? `1/${d}` : ""}
+                          </button>
+                        ))}
+                      </div>
+                      {!hideValues && (
+                        <div style={{ width: 96, flexShrink: 0, color: COLORS.inkSoft }} className="text-[11px] font-mono">
+                          {shadedCount}/{d} = {fracToPercent(shadedCount, d)}%
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <p className="text-[11px] text-center mt-4" style={{ color: COLORS.inkSoft }}>
+              Shade pieces in two rows — if their guide-lines land in the same place, the fractions are equivalent.
+            </p>
+          </div>
+        ) : tab === "circles" ? (
+          <div className="rounded-2xl p-5" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+            <div className="grid grid-cols-4 gap-5">
+              {CIRCLE_DENOMS.map((d) => {
+                const wedges = circles[d];
+                const shadedCount = wedges.filter(Boolean).length;
+                const color = PALETTE[d - 1];
+                const size = 96, r = 44, cx = size / 2, cy = size / 2;
+                return (
+                  <div key={d} className="flex flex-col items-center gap-1.5">
+                    <svg width={size} height={size}>
+                      {d === 1 ? (
+                        <circle cx={cx} cy={cy} r={r} fill={wedges[0] ? color : "#fff"} stroke={COLORS.ink} strokeWidth="1.5" style={{ cursor: "pointer" }} onClick={() => toggleCircle(1, 0)} />
+                      ) : (
+                        Array.from({ length: d }).map((_, i) => (
+                          <path
+                            key={i}
+                            d={wedgePath(cx, cy, r, (i * 360) / d, ((i + 1) * 360) / d)}
+                            fill={wedges[i] ? color : "#fff"}
+                            stroke={COLORS.ink}
+                            strokeWidth="1.5"
+                            style={{ cursor: "pointer" }}
+                            onClick={() => toggleCircle(d, i)}
+                          />
+                        ))
+                      )}
+                    </svg>
+                    <div className="text-xs font-bold" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>1/{d} each</div>
+                    {!hideValues && (
+                      <div className="text-[10px] font-mono" style={{ color: COLORS.inkSoft }}>
+                        {shadedCount}/{d} = {fracToDecimal(shadedCount, d)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl p-5" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {BAR_DENOMS.map((d) => (
+                <button
+                  key={d}
+                  onClick={() => spawnPiece(d)}
+                  className="flex items-center gap-1 text-xs font-bold rounded-full pl-1 pr-2.5 py-1"
+                  style={{ background: PALETTE[d - 1] + "22", color: PALETTE[d - 1], fontFamily: FONT_HEAD, border: `1px solid ${PALETTE[d - 1]}55` }}
+                >
+                  <Plus size={12} /> 1/{d}
+                </button>
+              ))}
+            </div>
+
+            <div
+              ref={workspaceRef}
+              style={{ position: "relative", height: 300, borderRadius: 10, background: COLORS.paper, border: `1px dashed ${COLORS.border}`, overflow: "hidden" }}
+            >
+              <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 2, background: COLORS.ink, opacity: 0.4 }} />
+              <div style={{ position: "absolute", left: TRACK_WIDTH, top: 0, bottom: 0, width: 2, background: COLORS.ink, opacity: 0.25 }} />
+              <div style={{ position: "absolute", left: TRACK_WIDTH + 6, top: 4, fontSize: 10, color: COLORS.inkSoft, fontFamily: FONT_HEAD, fontWeight: 700 }}>1 whole</div>
+
+              {pieces.length === 0 && (
+                <div className="w-full h-full flex items-center justify-center">
+                  <span className="text-sm" style={{ color: COLORS.inkSoft }}>Tap a piece above to drop it in, then drag pieces to compare</span>
+                </div>
+              )}
+
+              {pieces.map((p) => {
+                const w = Math.max(18, Math.round((TRACK_WIDTH / p.d)));
+                const color = PALETTE[p.d - 1];
+                return (
+                  <div
+                    key={p.id}
+                    onPointerDown={(e) => onPieceDown(e, p)}
+                    style={{
+                      position: "absolute", left: p.x, top: p.y, width: w, height: LANE_H - 6,
+                      background: color, border: `1.5px solid ${COLORS.ink}`, borderRadius: 5,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: FONT_HEAD, fontWeight: 700, fontSize: 11, color: "#fff",
+                      cursor: "grab", userSelect: "none", touchAction: "none", boxShadow: "0 2px 5px rgba(28,37,49,0.25)",
+                    }}
+                  >
+                    1/{p.d}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-center mt-3" style={{ color: COLORS.inkSoft }}>
+              Drag pieces to line them up against each other or stack them to compare lengths. Tap a piece without dragging to remove it.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+return FractionLab;
+})();
+
+const ClockLab = (function() {
+
+const COLORS = {
+  paperDay: "#F3F0E7",
+  paperNight: "#1B2233",
+  card: "#FFFFFF",
+  cardNight: "#232B41",
+  border: "#E2DED0",
+  borderNight: "#38425C",
+  ink: "#1C2531",
+  inkNight: "#EDEFF5",
+  inkSoft: "#6E7885",
+  inkSoftNight: "#9AA3BB",
+  amber: "#D9862A",
+  amberBg: "#FBEAD3",
+  sky: "#8FCBF2",
+  night: "#2A3350",
+};
+const FONT_HEAD = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
+const CARD_SHADOW = "0 1px 2px rgba(28,37,49,0.04), 0 10px 28px -14px rgba(28,37,49,0.22)";
+
+const CX = 120, CY = 120, R = 100;
+
+function polar(deg, len) {
+  const rad = ((deg - 90) * Math.PI) / 180;
+  return [CX + len * Math.cos(rad), CY + len * Math.sin(rad)];
+}
+function norm(deg) {
+  return ((deg % 360) + 360) % 360;
+}
+
+function ClockLab() {
+  const [time, setTime] = useState({ hour24: 15, minute: 30 }); // 3:30 PM
+  const [format24, setFormat24] = useState(false);
+  const svgRef = useRef(null);
+  const dragRef = useRef(null);
+
+  const hour12 = time.hour24 % 12 === 0 ? 12 : time.hour24 % 12;
+  const isPM = time.hour24 >= 12;
+  const isDay = time.hour24 >= 6 && time.hour24 < 18;
+
+  const angleAt = (clientX, clientY) => {
+    const rect = svgRef.current.getBoundingClientRect();
+    const scaleX = 240 / rect.width;
+    const scaleY = 240 / rect.height;
+    const x = (clientX - rect.left) * scaleX - CX;
+    const y = (clientY - rect.top) * scaleY - CY;
+    return norm((Math.atan2(y, x) * 180) / Math.PI + 90);
+  };
+
+  const onDown = (which) => (e) => {
+    e.stopPropagation();
+    if (which === "minute") {
+      dragRef.current = { type: "minute", lastMinute: time.minute };
+    } else {
+      dragRef.current = { type: "hour", lastPos: (time.hour24 % 12) + time.minute / 60 };
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+  const onMove = (e) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const deg = angleAt(e.clientX, e.clientY);
+    if (drag.type === "minute") {
+      const newMinute = Math.round(deg / 6) % 60;
+      const last = drag.lastMinute;
+      let deltaHour = 0;
+      if (last > 45 && newMinute < 15) deltaHour = 1;
+      else if (last < 15 && newMinute > 45) deltaHour = -1;
+      drag.lastMinute = newMinute;
+      setTime((prev) => ({ hour24: ((prev.hour24 + deltaHour) % 24 + 24) % 24, minute: newMinute }));
+    } else {
+      // Hour hand position encodes both hour and minute (real clocks move it
+      // continuously), so we derive both from the dragged angle. AM/PM only
+      // flips when this drag actually carries the hand across the 12 mark.
+      const totalHours = deg / 30; // 0..12, continuous
+      let h = Math.floor(totalHours) % 12;
+      const frac = totalHours - Math.floor(totalHours);
+      let newMinute = Math.round(frac * 60);
+      if (newMinute === 60) {
+        newMinute = 0;
+        h = (h + 1) % 12;
+      }
+      const last = drag.lastPos;
+      const crossed = (last > 10.5 && totalHours < 1.5) || (last < 1.5 && totalHours > 10.5);
+      drag.lastPos = totalHours;
+      setTime((prev) => {
+        const wasPM = prev.hour24 >= 12;
+        const nowPM = crossed ? !wasPM : wasPM;
+        return { hour24: (nowPM ? 12 : 0) + h, minute: newMinute };
+      });
+    }
+  };
+  const onUp = () => {
+    dragRef.current = null;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  };
+
+  const setNow = () => {
+    const now = new Date();
+    setTime({ hour24: now.getHours(), minute: now.getMinutes() });
+  };
+
+  const hourAngle = ((time.hour24 % 12) + time.minute / 60) * 30;
+  const minuteAngle = time.minute * 6;
+  const [hx, hy] = polar(hourAngle, 52);
+  const [mx, my] = polar(minuteAngle, 78);
+
+  const bg = isDay ? COLORS.paperDay : COLORS.paperNight;
+  const cardBg = isDay ? COLORS.card : COLORS.cardNight;
+  const border = isDay ? COLORS.border : COLORS.borderNight;
+  const ink = isDay ? COLORS.ink : COLORS.inkNight;
+  const inkSoft = isDay ? COLORS.inkSoft : COLORS.inkSoftNight;
+
+  const digital = format24
+    ? `${String(time.hour24).padStart(2, "0")} ${String(time.minute).padStart(2, "0")}`
+    : `${hour12}:${String(time.minute).padStart(2, "0")} ${isPM ? "PM" : "AM"}`;
+
+  return (
+    <div className="w-full min-h-screen transition-colors duration-500" style={{ background: bg, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');`}</style>
+      <div className="max-w-md mx-auto px-6 py-8">
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="flex items-center justify-center rounded-lg" style={{ width: 34, height: 34, background: ink }}>
+            <Clock3 size={18} color={COLORS.amberBg} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: COLORS.amber }}>Time</div>
+            <h1 className="text-2xl leading-tight font-bold" style={{ color: ink, fontFamily: FONT_HEAD }}>Clock</h1>
+          </div>
+        </div>
+        <p className="text-sm mb-6 ml-[44px]" style={{ color: inkSoft }}>Drag the hands to set a time.</p>
+
+        <div className="rounded-2xl p-6 flex flex-col items-center transition-colors duration-500" style={{ background: cardBg, border: `1px solid ${border}`, boxShadow: CARD_SHADOW }}>
+          <div className="w-full flex items-center justify-between mb-3">
+            <div
+              className="flex items-center gap-1.5 text-xs font-bold rounded-full px-3 py-1 transition-colors duration-500"
+              style={{ background: isDay ? "#FEF3D8" : COLORS.night, color: isDay ? "#B8791E" : "#C7D0EA" }}
+            >
+              <span style={{ fontSize: 14 }}>{isDay ? "☀️" : "🌙"}</span> {isDay ? "Day" : "Night"}
+            </div>
+            <button onClick={setNow} className="flex items-center gap-1 text-xs font-semibold rounded-full px-3 py-1" style={{ background: COLORS.amberBg, color: COLORS.amber }}>
+              <RotateCcw size={11} /> Now
+            </button>
+          </div>
+
+          <svg ref={svgRef} viewBox="0 0 240 240" style={{ width: "100%", maxWidth: 280, touchAction: "none" }}>
+            <circle cx={CX} cy={CY} r={R} fill={isDay ? "#FFFFFF" : "#2C3552"} stroke={ink} strokeWidth="3" />
+            {Array.from({ length: 12 }).map((_, i) => {
+              const deg = i * 30;
+              const [x1, y1] = polar(deg, R - 8);
+              const [x2, y2] = polar(deg, R - (i % 3 === 0 ? 18 : 14));
+              const [tx, ty] = polar(deg, R - 28);
+              return (
+                <g key={i}>
+                  <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={inkSoft} strokeWidth={i % 3 === 0 ? 2.5 : 1.5} />
+                  <text x={tx} y={ty + 4} fontSize="13" fontWeight="700" fontFamily={FONT_HEAD} fill={ink} textAnchor="middle">
+                    {i === 0 ? 12 : i}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* hour hand */}
+            <line x1={CX} y1={CY} x2={hx} y2={hy} stroke={ink} strokeWidth="6" strokeLinecap="round" />
+            <line x1={CX} y1={CY} x2={hx} y2={hy} stroke="transparent" strokeWidth="26" strokeLinecap="round" onPointerDown={onDown("hour")} style={{ cursor: "grab" }} />
+            <circle cx={hx} cy={hy} r="12" fill="transparent" onPointerDown={onDown("hour")} style={{ cursor: "grab" }} />
+
+            {/* minute hand */}
+            <line x1={CX} y1={CY} x2={mx} y2={my} stroke={COLORS.amber} strokeWidth="4" strokeLinecap="round" />
+            <line x1={CX} y1={CY} x2={mx} y2={my} stroke="transparent" strokeWidth="24" strokeLinecap="round" onPointerDown={onDown("minute")} style={{ cursor: "grab" }} />
+            <circle cx={mx} cy={my} r="11" fill="transparent" onPointerDown={onDown("minute")} style={{ cursor: "grab" }} />
+
+            <circle cx={CX} cy={CY} r="6" fill={ink} />
+          </svg>
+
+          <div className="text-3xl font-bold tabular-nums mt-4" style={{ color: ink, fontFamily: FONT_HEAD }}>{digital}</div>
+
+          <div className="flex gap-2 mt-4">
+            <button
+              onClick={() => setFormat24((f) => !f)}
+              className="text-xs font-semibold rounded-full px-3 py-1.5"
+              style={{ background: format24 ? COLORS.amberBg : (isDay ? "#EDEAE0" : COLORS.night), color: format24 ? COLORS.amber : inkSoft }}
+            >
+              {format24 ? "24-hour" : "12-hour"}
+            </button>
+          </div>
+        </div>
+        <p className="text-[11px] text-center mt-3" style={{ color: inkSoft }}>Drag the hour or minute hand. The background switches for day and night automatically.</p>
+      </div>
+    </div>
+  );
+}
+
+return ClockLab;
+})();
+
+const CubeLab = (function() {
+
+const COLORS = {
+  paper: "#F3F0E7",
+  card: "#FFFFFF",
+  border: "#E2DED0",
+  ink: "#1C2531",
+  inkSoft: "#6E7885",
+  amber: "#D9862A",
+  amberBg: "#FBEAD3",
+  grid: "#DEE6EC",
+};
+const FONT_HEAD = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
+const CARD_SHADOW = "0 1px 2px rgba(28,37,49,0.04), 0 10px 28px -14px rgba(28,37,49,0.22)";
+
+const COUNT_COLORS = {
+  1: "#C0392B", // red
+  2: "#E8A9C4", // pink
+  3: "#5B9E52", // green
+  4: "#9C5DBE", // purple (only shows up when a dimension is 1 or 2)
+  5: "#D9862A", // orange
+  6: "#3E7FC9", // blue
+};
+const CUT = "#FFFFFF";
+
+function clamp(v, min, max) {
+  return Math.min(max, Math.max(min, v));
+}
+
+function Eyebrow({ children }) {
+  return <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: COLORS.inkSoft }}>{children}</div>;
+}
+
+function Stepper({ label, value, onChange, min = 1, max = 6 }) {
+  return (
+    <div className="flex items-center justify-between mb-2">
+      <span className="text-xs font-semibold" style={{ color: COLORS.ink }}>{label}</span>
+      <div className="flex items-center gap-2">
+        <button onClick={() => onChange(clamp(value - 1, min, max))} className="rounded-full" style={{ background: COLORS.paper, width: 24, height: 24 }}>−</button>
+        <span className="text-sm font-bold w-5 text-center tabular-nums" style={{ fontFamily: FONT_HEAD, color: COLORS.ink }}>{value}</span>
+        <button onClick={() => onChange(clamp(value + 1, min, max))} className="rounded-full" style={{ background: COLORS.amberBg, color: COLORS.amber, width: 24, height: 24 }}>+</button>
+      </div>
+    </div>
+  );
+}
+
+// One real 3D unit cube: 6 independently-transformed faces so it can be
+// viewed, and rotated, from any angle — not a fixed isometric drawing.
+const Cube3D = React.memo(function Cube3D({ s, x, y, z, paint, count, selected, dataKey }) {
+  const half = s / 2;
+  const color = COUNT_COLORS[count] || CUT;
+  const faces = [
+    { key: "north", painted: paint.north, transform: `translateZ(${half}px)` },
+    { key: "south", painted: paint.south, transform: `rotateY(180deg) translateZ(${half}px)` },
+    { key: "east", painted: paint.east, transform: `rotateY(90deg) translateZ(${half}px)` },
+    { key: "west", painted: paint.west, transform: `rotateY(-90deg) translateZ(${half}px)` },
+    { key: "top", painted: paint.top, transform: `rotateX(90deg) translateZ(${half}px)` },
+    { key: "bottom", painted: paint.bottom, transform: `rotateX(-90deg) translateZ(${half}px)` },
+  ];
+  return (
+    <div
+      data-cube-key={dataKey}
+      style={{
+        position: "absolute", left: 0, top: 0, width: s, height: s,
+        transformStyle: "preserve-3d",
+        transform: `translate3d(${x}px, ${y}px, ${z}px)`,
+        transition: "transform 0.9s cubic-bezier(.3,.1,.2,1)",
+      }}
+    >
+      {faces.map((f) => (
+        <div
+          key={f.key}
+          data-cube-key={dataKey}
+          style={{
+            position: "absolute", inset: 0,
+            background: f.painted ? color : CUT,
+            border: `1.5px solid ${selected ? "#D9862A" : "#1C2531"}`,
+            boxShadow: selected ? "0 0 0 3px rgba(217,134,42,0.65) inset" : "none",
+            transform: f.transform,
+          }}
+        />
+      ))}
+    </div>
+  );
+});
+
+function CubeLab() {
+  const [L, setL] = useState(4);
+  const [B, setB] = useState(3);
+  const [H, setH] = useState(3);
+  const [exploded, setExploded] = useState(false);
+  const [hideValues, setHideValues] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [viewX, setViewX] = useState(-22);
+  const [viewY, setViewY] = useState(-34);
+  const [autoSpin, setAutoSpin] = useState(false);
+  const dragRef = useRef(null);
+
+  useEffect(() => {
+    if (!autoSpin) return;
+    const iv = setInterval(() => setViewY((v) => v + 0.5), 30);
+    return () => clearInterval(iv);
+  }, [autoSpin]);
+
+  const onPointerMove = (e) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.x;
+    const dy = e.clientY - dragRef.current.y;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) dragRef.current.moved = true;
+    setViewY(dragRef.current.vy + dx * 0.5);
+    setViewX(clamp(dragRef.current.vx - dy * 0.5, -85, 85));
+  };
+  const onPointerUp = (e) => {
+    const drag = dragRef.current;
+    if (drag && !drag.moved) {
+      const el = e.target.closest && e.target.closest("[data-cube-key]");
+      if (el) {
+        const [kx, ky, kz] = el.dataset.cubeKey.split("-").map(Number);
+        setSelected((prev) =>
+          prev && prev.x === kx && prev.y === ky && prev.z === kz ? null : cubes.find((c) => c.x === kx && c.y === ky && c.z === kz) || null
+        );
+      }
+    }
+    dragRef.current = null;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+  };
+  const onPointerDown = (e) => {
+    dragRef.current = { x: e.clientX, y: e.clientY, vx: viewX, vy: viewY, moved: false };
+    setAutoSpin(false);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  };
+
+  const cubes = useMemo(() => {
+    const arr = [];
+    for (let x = 0; x < L; x++)
+      for (let y = 0; y < B; y++)
+        for (let z = 0; z < H; z++) {
+          const paint = { north: y === B - 1, south: y === 0, east: x === L - 1, west: x === 0, top: z === H - 1, bottom: z === 0 };
+          const count = Object.values(paint).filter(Boolean).length;
+          arr.push({ x, y, z, count, paint });
+        }
+    return arr;
+  }, [L, B, H]);
+
+  const groups = {};
+  cubes.forEach((c) => (groups[c.count] = (groups[c.count] || 0) + 1));
+  const groupKeys = Object.keys(groups).map(Number).sort((a, b) => b - a);
+
+  const s = clamp(200 / Math.max(L, B, H, 3), 20, 46);
+  const gap = exploded ? s * 1.2 : 0;
+  const step = s + gap;
+  const cx = (L - 1) / 2, cy = (B - 1) / 2, cz = (H - 1) / 2;
+
+  return (
+    <div className="w-full min-h-screen" style={{ background: COLORS.paper, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');`}</style>
+      <div
+        className="max-w-4xl mx-auto px-6 py-8"
+        style={{ backgroundImage: `linear-gradient(${COLORS.grid} 1px, transparent 1px), linear-gradient(90deg, ${COLORS.grid} 1px, transparent 1px)`, backgroundSize: "26px 26px" }}
+      >
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="flex items-center justify-center rounded-lg" style={{ width: 34, height: 34, background: COLORS.ink }}>
+            <Box size={18} color={COLORS.amberBg} />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: COLORS.amber }}>Geometry · Painted Cube</div>
+            <h1 className="text-2xl leading-tight font-bold" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>Cube Lab</h1>
+          </div>
+        </div>
+        <p className="text-sm mb-6 ml-[44px]" style={{ color: COLORS.inkSoft }}>
+          Build a painted cuboid out of unit cubes, spin it around, then break it apart to see how many faces each little cube really has painted.
+        </p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-5">
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              <Eyebrow>Dimensions (units)</Eyebrow>
+              <Stepper label="Length" value={L} onChange={setL} max={6} />
+              <Stepper label="Breadth" value={B} onChange={setB} max={6} />
+              <Stepper label="Height" value={H} onChange={setH} max={6} />
+              <div className="text-[11px] mt-2 font-mono" style={{ color: COLORS.inkSoft }}>{L} × {B} × {H} = {L * B * H} cubes</div>
+            </div>
+
+            <button
+              onClick={() => { setExploded((e) => !e); setSelected(null); }}
+              className="flex items-center justify-center gap-2 rounded-full py-2.5 text-sm font-semibold transition-colors"
+              style={{ background: exploded ? COLORS.amberBg : COLORS.ink, color: exploded ? COLORS.amber : "#fff", boxShadow: CARD_SHADOW }}
+            >
+              <Hammer size={15} /> {exploded ? "Put it back together" : "Break it apart"}
+            </button>
+
+            <button
+              onClick={() => setAutoSpin((a) => !a)}
+              className="flex items-center justify-center gap-1.5 text-xs font-semibold rounded-full px-3 py-2"
+              style={{ background: autoSpin ? COLORS.amberBg : COLORS.card, color: autoSpin ? COLORS.amber : COLORS.inkSoft, border: `1px solid ${COLORS.border}` }}
+            >
+              <Shuffle size={13} /> {autoSpin ? "Stop spin" : "Auto-spin"}
+            </button>
+
+            {exploded && (
+              <button
+                onClick={() => setHideValues((v) => !v)}
+                className="flex items-center justify-center gap-1.5 text-xs font-semibold rounded-full px-3 py-2"
+                style={{ background: hideValues ? COLORS.amberBg : COLORS.card, color: hideValues ? COLORS.amber : COLORS.inkSoft, border: `1px solid ${COLORS.border}` }}
+              >
+                {hideValues ? <Eye size={13} /> : <EyeOff size={13} />}
+                {hideValues ? "Reveal counts" : "Hide counts"}
+              </button>
+            )}
+
+            <button onClick={() => { setL(4); setB(3); setH(3); setExploded(false); setSelected(null); }} className="flex items-center justify-center gap-1.5 text-xs font-medium rounded-full py-2 opacity-70 hover:opacity-100" style={{ color: COLORS.inkSoft }}>
+              <RotateCcw size={12} /> Reset
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+              <div
+                onPointerDown={onPointerDown}
+                style={{ perspective: 1000, height: 380, display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab", touchAction: "none" }}
+              >
+                <div
+                  style={{
+                    position: "relative", width: 1, height: 1, transformStyle: "preserve-3d",
+                    transform: `rotateX(${viewX}deg) rotateY(${viewY}deg)`,
+                    transition: dragRef.current ? "none" : "transform 0.15s linear",
+                  }}
+                >
+                  {cubes.map((c) => {
+                    const isSel = selected && selected.x === c.x && selected.y === c.y && selected.z === c.z;
+                    return (
+                      <Cube3D
+                        key={`${c.x}-${c.y}-${c.z}`}
+                        dataKey={`${c.x}-${c.y}-${c.z}`}
+                        s={s}
+                        x={(c.x - cx) * step - s / 2}
+                        y={-(c.z - cz) * step - s / 2}
+                        z={(c.y - cy) * step}
+                        paint={c.paint}
+                        count={c.count}
+                        selected={isSel}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="text-center text-[11px] mt-1" style={{ color: COLORS.inkSoft }}>Drag to rotate</div>
+            </div>
+
+            {exploded && selected && (
+              <div className="rounded-2xl p-3 text-center" style={{ background: COLORS.amberBg }}>
+                <span className="text-sm font-bold" style={{ color: COLORS.amber, fontFamily: FONT_HEAD }}>
+                  This cube has {selected.count} face{selected.count === 1 ? "" : "s"} painted
+                </span>
+              </div>
+            )}
+
+            {exploded && !hideValues && (
+              <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
+                <Eyebrow>How many of each</Eyebrow>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {groupKeys.map((k) => (
+                    <div key={k} className="rounded-xl py-2 text-center" style={{ background: COLORS.paper }}>
+                      <div className="text-lg font-bold tabular-nums" style={{ color: COLORS.ink, fontFamily: FONT_HEAD }}>{groups[k]}</div>
+                      <div className="text-[10px]" style={{ color: COLORS.inkSoft }}>{k} face{k === 1 ? "" : "s"} painted</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+return CubeLab;
+})();
+
+// ---------------------------------------------------------------------
+// Hub shell: home screen + hash-based navigation between tools
+// ---------------------------------------------------------------------
+const SHELL = {
+  paper: "#F3F0E7", card: "#FFFFFF", border: "#E2DED0", ink: "#1C2531",
+  inkSoft: "#6E7885", amber: "#D9862A", amberBg: "#FBEAD3",
+};
+const SHELL_FONT = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
+
+const TOOLS = [
+  { id: "volume", title: "Volume Lab", desc: "Water height, connected tanks, and draining through a hole.", emoji: "🧪", accent: "#D9862A", Component: VolumeLab },
+  { id: "nets", title: "Nets Lab", desc: "Build a cube net square by square and watch it fold in 3D.", emoji: "📦", accent: "#7C5CBF", Component: NetsLab },
+  { id: "money", title: "Money Box", desc: "Singapore coins and notes, drawn to scale, add up to any amount.", emoji: "💰", accent: "#3E8F62", Component: MoneyLab },
+  { id: "fractions", title: "Fraction Toy", desc: "Bars, circles, and a drag-and-drop workspace to compare sizes.", emoji: "🥧", accent: "#3E8EDE", Component: FractionLab },
+  { id: "clock", title: "Clock", desc: "Drag the hands to set any time, with a day/night background.", emoji: "🕐", accent: "#D9862A", Component: ClockLab },
+  { id: "cube", title: "Cube Lab", desc: "Build a painted cuboid, spin it in 3D, then break it apart.", emoji: "📦", accent: "#5B9E52", Component: CubeLab },
+];
+
+function HomeScreen({ go }) {
+  return (
+    <div className="w-full min-h-screen" style={{ background: SHELL.paper, fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
+      <div className="max-w-3xl mx-auto px-6 py-10">
+        <div className="text-[11px] font-bold uppercase tracking-widest mb-1" style={{ color: SHELL.amber }}>Primary Math</div>
+        <h1 className="text-3xl font-bold mb-2" style={{ color: SHELL.ink, fontFamily: SHELL_FONT }}>Toolkit</h1>
+        <p className="text-sm mb-8" style={{ color: SHELL.inkSoft }}>Pick a tool to open it.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {TOOLS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => go(t.id)}
+              className="text-left rounded-2xl p-5 transition-transform active:scale-[0.98]"
+              style={{ background: SHELL.card, border: `1px solid ${SHELL.border}`, boxShadow: "0 1px 2px rgba(28,37,49,0.04), 0 10px 28px -14px rgba(28,37,49,0.22)" }}
+            >
+              <div className="flex items-center justify-center rounded-xl mb-3" style={{ width: 44, height: 44, background: t.accent + "22", fontSize: 22 }}>
+                {t.emoji}
+              </div>
+              <div className="text-base font-bold mb-1" style={{ color: SHELL.ink, fontFamily: SHELL_FONT }}>{t.title}</div>
+              <div className="text-xs" style={{ color: SHELL.inkSoft }}>{t.desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [view, setView] = useState(() => (window.location.hash || "#home").slice(1));
+
+  useEffect(() => {
+    const onHash = () => setView((window.location.hash || "#home").slice(1));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const go = (id) => {
+    window.location.hash = id;
+    setView(id);
+  };
+
+  const tool = TOOLS.find((t) => t.id === view);
+
+  if (!tool) return <HomeScreen go={go} />;
+
+  const ToolComponent = tool.Component;
+  return (
+    <div>
+      <div className="sticky top-0 z-50 flex items-center gap-3 px-4 py-2.5" style={{ background: SHELL.ink }}>
+        <button onClick={() => go("home")} className="flex items-center gap-1.5 text-sm font-semibold text-white active:opacity-70">
+          <span style={{ fontSize: 16 }}>←</span> Home
+        </button>
+        <span className="text-xs" style={{ color: "rgba(255,255,255,0.55)" }}>{tool.emoji} {tool.title}</span>
+      </div>
+      <ToolComponent />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+</script>
+</body>
+</html>
