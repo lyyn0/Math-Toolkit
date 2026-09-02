@@ -2164,9 +2164,15 @@ function CubeLab() {
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
         const p = pendingRef.current;
-        if (p && dragRef.current) {
-          setViewY(dragRef.current.vy + p.dx * 0.5);
-          setViewX(clamp(dragRef.current.vx - p.dy * 0.5, -85, 85));
+        const drag = dragRef.current;
+        if (p && drag) {
+          const newY = drag.vy + p.dx * 0.5;
+          const newX = clamp(drag.vx - p.dy * 0.5, -85, 85);
+          drag.curX = newX;
+          drag.curY = newY;
+          if (sceneRef.current) {
+            sceneRef.current.style.transform = `rotateX(${newX}deg) rotateY(${newY}deg)`;
+          }
         }
       });
     }
@@ -2182,6 +2188,13 @@ function CubeLab() {
         );
       }
     }
+    // Only touch React state once, at the very end of the gesture — during
+    // the drag itself we mutated the DOM directly (see onPointerMove) so
+    // React never had to reconcile the ~1000 cube elements per frame.
+    if (drag && drag.curX !== undefined) {
+      setViewX(drag.curX);
+      setViewY(drag.curY);
+    }
     dragRef.current = null;
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current);
@@ -2193,6 +2206,7 @@ function CubeLab() {
   const onPointerDown = (e) => {
     dragRef.current = { x: e.clientX, y: e.clientY, vx: viewX, vy: viewY, moved: false };
     setAutoSpin(false);
+    if (sceneRef.current) sceneRef.current.style.transition = "none";
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
   };
@@ -2209,13 +2223,14 @@ function CubeLab() {
     return arr;
   }, [L, B, H]);
 
-  const groups = {};
-  cubes.forEach((c) => (groups[c.count] = (groups[c.count] || 0) + 1));
-  const groupKeys = Object.keys(groups).map(Number).sort((a, b) => b - a);
+  const { groups, groupKeys } = useMemo(() => {
+    const g = {};
+    cubes.forEach((c) => (g[c.count] = (g[c.count] || 0) + 1));
+    return { groups: g, groupKeys: Object.keys(g).map(Number).sort((a, b) => b - a) };
+  }, [cubes]);
 
-  const s = clamp(200 / Math.max(L, B, H, 3), 20, 46);
-  const gap = exploded ? s * 1.2 : 0;
-  const step = s + gap;
+  const s = clamp(170 / Math.max(L, B, H, 3), 13, 40);
+  const explodeDist = s * 1.4; // how far the shell peels away from the core
   const cx = (L - 1) / 2, cy = (B - 1) / 2, cz = (H - 1) / 2;
 
   return (
@@ -2242,9 +2257,9 @@ function CubeLab() {
           <div className="flex flex-col gap-4">
             <div className="rounded-2xl p-4" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, boxShadow: CARD_SHADOW }}>
               <Eyebrow>Dimensions (units)</Eyebrow>
-              <Stepper label="Length" value={L} onChange={setL} max={5} />
-              <Stepper label="Breadth" value={B} onChange={setB} max={5} />
-              <Stepper label="Height" value={H} onChange={setH} max={5} />
+              <Stepper label="Length" value={L} onChange={setL} max={10} />
+              <Stepper label="Breadth" value={B} onChange={setB} max={10} />
+              <Stepper label="Height" value={H} onChange={setH} max={10} />
               <div className="text-[11px] mt-2 font-mono" style={{ color: COLORS.inkSoft }}>{L} × {B} × {H} = {L * B * H} cubes</div>
             </div>
 
@@ -2304,9 +2319,9 @@ function CubeLab() {
                         key={`${c.x}-${c.y}-${c.z}`}
                         dataKey={`${c.x}-${c.y}-${c.z}`}
                         s={s}
-                        x={(c.x - cx) * step - s / 2}
-                        y={-(c.z - cz) * step - s / 2}
-                        z={(c.y - cy) * step}
+                        x={(c.x - cx) * s - s / 2 + (exploded ? ((c.paint.west ? -1 : 0) + (c.paint.east ? 1 : 0)) * explodeDist : 0)}
+                        y={-(c.z - cz) * s - s / 2 - (exploded ? ((c.paint.bottom ? -1 : 0) + (c.paint.top ? 1 : 0)) * explodeDist : 0)}
+                        z={(c.y - cy) * s + (exploded ? ((c.paint.south ? -1 : 0) + (c.paint.north ? 1 : 0)) * explodeDist : 0)}
                         paint={c.paint}
                         count={c.count}
                         selected={isSel}
